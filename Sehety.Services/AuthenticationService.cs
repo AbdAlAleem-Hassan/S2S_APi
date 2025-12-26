@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
+using S2S.Domain.Entities.Enums;
 using S2S.Domain.Entities.IdentityModule;
 using S2S.ServicesAbstraction;
 using S2S.Shared.CommonResult;
@@ -58,7 +59,11 @@ namespace S2S.Services
 				Email = registerDTO.Email,
 				UserName = registerDTO.UserName,
 				DisplayName = registerDTO.DisplayName,
-				PhoneNumber = registerDTO.PhoneNumber
+				PhoneNumber = registerDTO.PhoneNumber,
+				UserType = Enum.Parse<UserType>( registerDTO.UserType),
+
+				UsesSignLanguage = registerDTO.UsesSignLanguage,
+				SignLanguage =Enum.Parse<SignLanguage>(registerDTO.SignLanguage),
 			};
 
 			var identityResult = await _userManager.CreateAsync(user, registerDTO.Password);

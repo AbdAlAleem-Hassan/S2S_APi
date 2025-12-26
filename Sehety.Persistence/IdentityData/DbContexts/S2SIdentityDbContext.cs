@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using S2S.Domain.Entities.IdentityModule;
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Text;
 
 namespace S2S.Persistence.IdentityData.DbContexts
@@ -18,10 +19,11 @@ namespace S2S.Persistence.IdentityData.DbContexts
 		protected override void OnModelCreating(ModelBuilder builder)
 		{
 			base.OnModelCreating(builder);
-			builder.Entity<Address>().ToTable("Addresses");
-			builder.Entity<ApplicationUser>().ToTable("Users");
+			builder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly()); 
 			builder.Entity<IdentityRole>().ToTable("Roles");
 			builder.Entity<IdentityUserRole<string>>().ToTable("UserRoles");
+			
 		}
+
 	}
 }
