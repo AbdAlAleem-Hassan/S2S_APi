@@ -12,6 +12,7 @@ namespace S2S.ServicesAbstraction
 		Task<Result<UserDTO>> RegisterAsync(RegisterDTO registerDTO);
 		Task<bool> CheckEmailAsync(string email);
 		Task<Result<UserDTO>> GetUserByEmailAsync(string email);
+        
 
-	}
+    }
 }
