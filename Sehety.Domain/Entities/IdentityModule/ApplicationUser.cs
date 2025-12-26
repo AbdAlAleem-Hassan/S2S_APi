@@ -5,6 +5,7 @@ namespace S2S.Domain.Entities.IdentityModule
 	public class ApplicationUser : IdentityUser
 	{
 		public string DisplayName { get; set; } = default!;
+		public DateOnly? DateOfBirth { get; set; }
 		public UserType UserType { get; set; }
 		public SignLanguage SignLanguage { get; set; } = SignLanguage.Egyptian;
 		public bool UsesSignLanguage {  get; set; }
