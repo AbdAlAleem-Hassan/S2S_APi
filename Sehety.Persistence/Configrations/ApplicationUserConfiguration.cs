@@ -28,6 +28,8 @@ namespace S2S.Persistence.Configrations
                 address.Property(a => a.Street).HasColumnName("Street").HasMaxLength(100);
                 address.Property(a => a.Country).HasColumnName("Country").HasMaxLength(100);
             });
+            builder.Property(u => u.DateOfBirth)
+                   .HasColumnType("date");
         }
     }
 }
