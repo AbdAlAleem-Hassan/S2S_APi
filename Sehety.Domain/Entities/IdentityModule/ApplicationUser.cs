@@ -7,7 +7,7 @@ namespace S2S.Domain.Entities.IdentityModule
 		public string DisplayName { get; set; } = default!;
 		public DateOnly? DateOfBirth { get; set; }
 		public UserType UserType { get; set; }
-		public SignLanguage SignLanguage { get; set; } = SignLanguage.Egyptian;
+		public SignLanguage SignLanguage { get; set; } 
 		public bool UsesSignLanguage {  get; set; }
 		public string? ProfileImageUrl { get; set; }
 		public bool IsActive { get; set; } = true;

@@ -77,7 +77,16 @@ namespace S2S.Services
 
 		public async Task<Result<UserDTO>> RegisterAsync(RegisterDTO registerDTO)
 		{
-            var dobValidation = ValidateDateOfBirth(registerDTO.DateOfBirth);
+			var exists = await _userManager.FindByEmailAsync(registerDTO.Email);
+
+			if (exists is not null)
+			{
+				return Result<UserDTO>.Fail(new List<Error> {
+					Error.Validation("Email.Exists", "This email is already registered.")
+				});
+			}
+
+			var dobValidation = ValidateDateOfBirth(registerDTO.DateOfBirth);
             if (!dobValidation.IsSuccess)
                 return Result<UserDTO>.Fail(dobValidation.Errors.ToList());
 
@@ -85,9 +94,17 @@ namespace S2S.Services
             if (!Enum.TryParse<UserType>(registerDTO.UserType, out var userType))
                 return Error.Validation("UserType.Invalid", "Invalid user type");
 
-            if (!Enum.TryParse<SignLanguage>(registerDTO.SignLanguage, out var signLanguage))
-                return Error.Validation("SignLanguage.Invalid", "Invalid sign language");
-            var user = new ApplicationUser
+			SignLanguage signLanguage = SignLanguage.None;
+			if (registerDTO.UsesSignLanguage)
+			{
+				if (!Enum.TryParse<SignLanguage>(registerDTO.SignLanguage, true, out signLanguage))
+				{
+					return Result<UserDTO>.Fail(new List<Error> {
+						Error.Validation("SignLanguage.Invalid", "Please provide a valid sign language.")
+					});
+				}
+			}
+			var user = new ApplicationUser
 			{
 				Email = registerDTO.Email,
 				UserName = registerDTO.UserName,
@@ -96,8 +113,8 @@ namespace S2S.Services
                 PhoneNumber = registerDTO.PhoneNumber,
 				UserType = userType,
 				UsesSignLanguage = registerDTO.UsesSignLanguage,
-				SignLanguage =signLanguage
-				
+				SignLanguage = signLanguage
+
 			};
 
 			var identityResult = await _userManager.CreateAsync(user, registerDTO.Password);

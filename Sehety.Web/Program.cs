@@ -1,5 +1,6 @@
+using FluentValidation;
+using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Versioning;
@@ -7,12 +8,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using S2S.Domain.Contracts;
 using S2S.Domain.Entities.IdentityModule;
-using S2S.Persistence.DbContexts;
 using S2S.Persistence.IdentityData.DataSeed;
 using S2S.Persistence.IdentityData.DbContexts;
 using S2S.Services;
 using S2S.ServicesAbstraction;
-using S2S.Web.Extensions;
+using S2S.Shared.Validators;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -62,6 +62,10 @@ builder.Services.AddApiVersioning(options =>
 	options.ReportApiVersions = true;
 	options.ApiVersionReader = new UrlSegmentApiVersionReader();
 });
+
+builder.Services.AddFluentValidationAutoValidation();
+builder.Services.AddValidatorsFromAssemblyContaining<RegisterDTOValidator>();
+
 var app = builder.Build();
 
 #region Data Seeding

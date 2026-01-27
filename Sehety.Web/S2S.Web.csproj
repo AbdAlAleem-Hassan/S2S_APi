@@ -18,6 +18,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Sehety.Persistence\S2S.Persistence.csproj" />
     <ProjectReference Include="..\Sehety.Presentation\S2S.Presentation.csproj" />
+    <ProjectReference Include="..\Sehety.Shared\S2S.Shared.csproj" />
   </ItemGroup>
 
 </Project>

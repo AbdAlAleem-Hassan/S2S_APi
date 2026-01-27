@@ -8,8 +8,8 @@ namespace S2S.Shared.DataTransferObjects.V1.IdentityDTOs
 {
     public record UpdateProfileDTO
         (
-            [Required]string DisplayName ,
-            [Phone]string? PhoneNumber = null,
+            string DisplayName ,
+            string? PhoneNumber = null,
             IFormFile? ProfileImage = null
         );
 }

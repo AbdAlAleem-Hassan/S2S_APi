@@ -34,6 +34,7 @@ namespace S2S.Presentation.Controllers.V1
 			return HandleRequest(result);
 		}
 
+		[Authorize(Roles ="Admin")]
 		[HttpGet("EmailExists")]
 		public async Task<ActionResult<bool>> CheckEmail(string email)
 		{

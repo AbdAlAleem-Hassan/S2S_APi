@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace S2S.Persistence.Migrations
 {
     /// <inheritdoc />
-    public partial class UserIdentity : Migration
+    public partial class IdentityTable : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -31,6 +31,7 @@ namespace S2S.Persistence.Migrations
                 {
                     Id = table.Column<string>(type: "nvarchar(450)", nullable: false),
                     DisplayName = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    DateOfBirth = table.Column<DateOnly>(type: "date", nullable: true),
                     Type = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     SignLanguage = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     UsesSignLanguage = table.Column<bool>(type: "bit", nullable: false),
@@ -40,9 +41,9 @@ namespace S2S.Persistence.Migrations
                     UpdatedAt = table.Column<DateTime>(type: "datetime2", nullable: true),
                     LastLoginAt = table.Column<DateTime>(type: "datetime2", nullable: true),
                     IsFirstLogin = table.Column<bool>(type: "bit", nullable: false),
-                    Address_City = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: true),
-                    Address_Street = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: true),
-                    Address_Country = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: true),
+                    City = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: true),
+                    Street = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: true),
+                    Country = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: true),
                     UserName = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: false),
                     NormalizedUserName = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
                     Email = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),

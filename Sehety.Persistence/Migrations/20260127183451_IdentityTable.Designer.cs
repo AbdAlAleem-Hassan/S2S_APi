@@ -12,8 +12,8 @@ using S2S.Persistence.IdentityData.DbContexts;
 namespace S2S.Persistence.Migrations
 {
     [DbContext(typeof(S2SIdentityDbContext))]
-    [Migration("20251226181957_UserIdentity")]
-    partial class UserIdentity
+    [Migration("20260127183451_IdentityTable")]
+    partial class IdentityTable
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -173,6 +173,9 @@ namespace S2S.Persistence.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<DateOnly?>("DateOfBirth")
+                        .HasColumnType("date");
+
                     b.Property<string>("DisplayName")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -320,15 +323,18 @@ namespace S2S.Persistence.Migrations
 
                             b1.Property<string>("City")
                                 .HasMaxLength(100)
-                                .HasColumnType("nvarchar(100)");
+                                .HasColumnType("nvarchar(100)")
+                                .HasColumnName("City");
 
                             b1.Property<string>("Country")
                                 .HasMaxLength(100)
-                                .HasColumnType("nvarchar(100)");
+                                .HasColumnType("nvarchar(100)")
+                                .HasColumnName("Country");
 
                             b1.Property<string>("Street")
                                 .HasMaxLength(100)
-                                .HasColumnType("nvarchar(100)");
+                                .HasColumnType("nvarchar(100)")
+                                .HasColumnName("Street");
 
                             b1.HasKey("ApplicationUserId");
 
