@@ -14,14 +14,40 @@ using S2S.Services;
 using S2S.ServicesAbstraction;
 using S2S.Web.Extensions;
 using System.Text;
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.RateLimiting;
+using S2S.Shared.Mappings;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 
 builder.Services.AddControllers();
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll",
+        policy =>
+        {
+            policy.AllowAnyOrigin() // In production, replace with specific origins
+                  .AllowAnyHeader()
+                  .AllowAnyMethod();
+            // Note: If using HttpOnly cookies with a specific origin, use .WithOrigins(...) and .AllowCredentials()
+        });
+});
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddFixedWindowLimiter("auth-limit", opt =>
+    {
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.PermitLimit = 5;
+        opt.QueueLimit = 0;
+        opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+    });
+});
+
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
 builder.Services.AddDbContext<S2SIdentityDbContext>(option =>
 {
 	option.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"));
@@ -29,7 +55,10 @@ builder.Services.AddDbContext<S2SIdentityDbContext>(option =>
 
 builder.Services.AddKeyedScoped<IDataInitializer, IdentityDataInitializer>("Identity");
 builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
+builder.Services.AddScoped<IEmailService, EmailService>();
 
+// AutoMapper Configuration
+builder.Services.AddAutoMapper(typeof(MappingProfiles));
 
 
 builder.Services.AddIdentityCore<ApplicationUser>()
@@ -62,6 +91,12 @@ builder.Services.AddApiVersioning(options =>
 	options.ReportApiVersions = true;
 	options.ApiVersionReader = new UrlSegmentApiVersionReader();
 });
+
+builder.Services.AddVersionedApiExplorer(setup =>
+{
+    setup.GroupNameFormat = "'v'VVV";
+    setup.SubstituteApiVersionInUrl = true;
+});
 var app = builder.Build();
 
 #region Data Seeding
@@ -74,9 +109,13 @@ var app = builder.Build();
 if (app.Environment.IsDevelopment())
 {
 	app.UseSwagger();
-	app.UseSwagger();
+	app.UseSwaggerUI();
 }
 app.UseHttpsRedirection();
+
+app.UseCors("AllowAll");
+
+app.UseRateLimiter(); // Rate limiter before auth to prevent brute force
 
 app.UseAuthentication();
 app.UseAuthorization();
