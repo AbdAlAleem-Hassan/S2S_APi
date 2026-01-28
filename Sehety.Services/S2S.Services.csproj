@@ -7,11 +7,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.2" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Sehety.Domain\S2S.Domain.csproj" />
+    <ProjectReference Include="..\Sehety.Persistence\S2S.Persistence.csproj" />
     <ProjectReference Include="..\Sehety.ServicesAbstraction\S2S.ServicesAbstraction.csproj" />
   </ItemGroup>
 

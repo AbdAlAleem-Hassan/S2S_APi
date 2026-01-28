@@ -9,7 +9,7 @@ namespace S2S.Presentation.Controllers
 	
 	public class ApiBaseController : ControllerBase
 	{
-		protected IActionResult HandleRequest(Result result)
+		protected ActionResult HandleRequest(Result result)
 		{
 			if (result.IsSuccess)
 				return NoContent();

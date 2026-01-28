@@ -7,11 +7,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.1" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.2" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Sehety.Services\S2S.Services.csproj" />
+    <ProjectReference Include="..\Sehety.Domain\S2S.Domain.csproj" />
   </ItemGroup>
 
 </Project>
