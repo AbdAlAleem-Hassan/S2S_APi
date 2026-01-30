@@ -114,7 +114,7 @@ namespace S2S.Services
             if (registerDTO.UsesSignLanguage && !registerDTO.SignLanguage.HasValue)
                 return Error.Validation("SignLanguage.Required", "Sign language is required when UsesSignLanguage is true");
 
-			// Check if phone number already exists (Identity doesn't do this by default)
+			// Check if phone number already exists 
 			if (await _userManager.Users.AnyAsync(u => u.PhoneNumber == registerDTO.PhoneNumber))
 			{
 				return Error.Validation("DuplicatePhoneNumber", "Phone number is already in use.");
@@ -152,7 +152,7 @@ namespace S2S.Services
                 }
                 catch
                 {
-                    // In production, you might want to log this or use a background job
+                    
                 }
 
 				return Result.Ok();
@@ -249,7 +249,7 @@ namespace S2S.Services
 
             if (user.EmailConfirmed) return Error.Validation("AlreadyVerified", "Email is already verified.");
 
-            // Anti-spam check: check if a code was sent very recently (e.g., in the last 1 minute)
+            
             var lastOtp = await _context.UserOtps
                 .Where(o => o.UserId == user.Id)
                 .OrderByDescending(o => o.CreatedAt)
@@ -294,15 +294,13 @@ namespace S2S.Services
             return Convert.ToBase64String(randomNumber);
         }
 
-        /// <summary>
-        /// Sanitizes user input to prevent XSS attacks by removing potentially dangerous characters
-        /// </summary>
+        
         private static string SanitizeInput(string input)
         {
             if (string.IsNullOrWhiteSpace(input))
                 return string.Empty;
 
-            // Trim whitespace
+            
             var sanitized = input.Trim();
 
             // Remove potentially dangerous HTML/Script characters
@@ -321,9 +319,7 @@ namespace S2S.Services
             return sanitized;
         }
 
-        /// <summary>
-        /// Maps ApplicationUser to UserDTO using AutoMapper and sets the Token manually
-        /// </summary>
+        
         private async Task<UserDTO> MapToUserDTOAsync(ApplicationUser user)
         {
             var token = await CreateAccessTokenAsync(user);

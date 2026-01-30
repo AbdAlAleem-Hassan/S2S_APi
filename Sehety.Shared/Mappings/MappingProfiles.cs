@@ -21,6 +21,7 @@ namespace S2S.Shared.Mappings
                 .ForMember(dest => dest.SignLanguage, opt => opt.MapFrom(src => src.SignLanguage ?? SignLanguage.Egyptian))
                 .ForMember(dest => dest.EmailConfirmed, opt => opt.MapFrom(_ => false))
                 // Ignore computed/identity-managed fields
+                
                 .ForMember(dest => dest.Id, opt => opt.Ignore())
                 .ForMember(dest => dest.NormalizedEmail, opt => opt.Ignore())
                 .ForMember(dest => dest.NormalizedUserName, opt => opt.Ignore())
