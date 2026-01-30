@@ -27,9 +27,10 @@ namespace S2S.Presentation.Controllers.V1
 			var result = await _authenticationService.LoginAsync(loginDTO);
             if (result.IsSuccess && result.Value.RefreshToken != null)
             {
+                // For web clients: set cookie
                 SetRefreshTokenCookie(result.Value.RefreshToken);
-                // Standard practice: strip refresh token from the body if using cookies
-                return Ok(result.Value with { RefreshToken = null });
+                // For mobile clients: include refresh token in response body
+                return Ok(result.Value);
             }
 			return HandleRequest(result);
 		}
@@ -56,13 +57,10 @@ namespace S2S.Presentation.Controllers.V1
             return HandleRequest(result);
         }
 
-        /// <summary>
-        /// Refresh the access token using refresh token from cookie (Web) or body (Mobile)
-        /// </summary>
+        
         [HttpPost("RefreshToken")]
         public async Task<ActionResult<UserDTO>> RefreshToken([FromBody] RefreshTokenDTO? refreshTokenDTO = null)
         {
-            // Try to get refresh token from cookie first (Web), then from body (Mobile)
             var refreshToken = Request.Cookies["refreshToken"] ?? refreshTokenDTO?.RefreshToken;
             
             if (string.IsNullOrEmpty(refreshToken)) 
@@ -81,10 +79,12 @@ namespace S2S.Presentation.Controllers.V1
             return HandleRequest(result);
         }
 
+        [Authorize]
         [HttpPost("Logout")]
-        public async Task<ActionResult> Logout()
+        public async Task<ActionResult> Logout([FromBody] RefreshTokenDTO? refreshTokenDTO = null)
         {
-            var refreshToken = Request.Cookies["refreshToken"];
+            // Support both web (cookie) and mobile (body) clients
+            var refreshToken = Request.Cookies["refreshToken"] ?? refreshTokenDTO?.RefreshToken;
             if (!string.IsNullOrEmpty(refreshToken))
             {
                 await _authenticationService.LogoutAsync(refreshToken);
@@ -107,7 +107,7 @@ namespace S2S.Presentation.Controllers.V1
             var cookieOptions = new CookieOptions
             {
                 HttpOnly = true,
-                Secure = true, // Set to true in production
+                Secure = true, 
                 SameSite = SameSiteMode.Strict,
                 Expires = DateTime.UtcNow.AddDays(7)
             };
