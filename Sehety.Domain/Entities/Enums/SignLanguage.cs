@@ -6,7 +6,6 @@ namespace S2S.Domain.Entities.Enums
 {
     public enum SignLanguage
     {
-        
         Egyptian = 1,
     }
 }
