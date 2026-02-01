@@ -85,12 +85,26 @@ namespace S2S.Services
 			if(user is null)
 				return Error.InvalidCredentails("User.InvalidCredentials");
 
+            // Check if account is locked
+            if (await _userManager.IsLockedOutAsync(user))
+            {
+                var remainingTime = Math.Ceiling((user.LockoutEnd!.Value - DateTimeOffset.UtcNow).TotalMinutes);
+                return Error.Unauthorized("AccountLocked", $"Account is locked. Try again in {remainingTime} minutes.");
+            }
+
             if (!user.EmailConfirmed)
                 return Error.Unauthorized("EmailNotConfirmed", "Please verify your email first.");
 			
 			var isPasswordValid = await _userManager.CheckPasswordAsync(user, loginDTO.Password);
 			if(!isPasswordValid)
+            {
+                // Track failed attempt for lockout
+                await _userManager.AccessFailedAsync(user);
 				return Error.InvalidCredentails("User.InvalidCredentials");
+            }
+
+            // Reset failed attempts on successful login
+            await _userManager.ResetAccessFailedCountAsync(user);
 
 			var Token = await CreateAccessTokenAsync(user);
             user.RefreshToken = GenerateRefreshToken();
@@ -276,6 +290,117 @@ namespace S2S.Services
             await _emailService.SendOtpEmailAsync(user.Email!, otpCode);
 
             return Result.Ok();
+        }
+
+        public async Task<Result> ForgotPasswordAsync(ForgotPasswordDTO forgotPasswordDTO)
+        {
+            var user = await _userManager.FindByEmailAsync(forgotPasswordDTO.Email);
+            
+            // Return OK regardless to prevent email enumeration
+            if (user == null) return Result.Ok();
+            
+            // Only allow password reset for confirmed emails
+            if (!user.EmailConfirmed) return Result.Ok();
+
+            // Invalidate any previous unused tokens for this user
+            var oldOtps = await _context.UserOtps
+                .Where(o => o.UserId == user.Id && !o.IsUsed)
+                .ToListAsync();
+            
+            foreach (var old in oldOtps) old.IsUsed = true;
+
+            var rawToken = GenerateSecureToken();
+            var hashedToken = HashOtp(rawToken);
+
+            var otpRecord = new UserOtp
+            {
+                UserId = user.Id,
+                OtpHash = hashedToken,
+                ExpiryTime = DateTime.UtcNow.AddMinutes(30),
+                Attempts = 0,
+                IsUsed = false
+            };
+
+            _context.UserOtps.Add(otpRecord);
+            await _context.SaveChangesAsync();
+
+            // Construct the reset link - NO EMAIL in URL for security
+            var baseUrl = _configuration["AppUrls:ClientUrl"] ?? "https://yoursite.com";
+            var resetLink = $"{baseUrl}/reset-password?token={rawToken}";
+
+            await _emailService.SendForgotPasswordEmailAsync(user.Email!, resetLink);
+
+            return Result.Ok();
+        }
+
+        public async Task<Result> ResetPasswordAsync(ResetPasswordDTO resetPasswordDTO)
+        {
+            var hashedToken = HashOtp(resetPasswordDTO.Token);
+            
+            // Find the token record and include user lookup
+            var tokenRecord = await _context.UserOtps
+                .Include(o => o.User)
+                .Where(o => o.OtpHash == hashedToken && !o.IsUsed && o.ExpiryTime > DateTime.UtcNow)
+                .FirstOrDefaultAsync();
+
+            if (tokenRecord == null)
+            {
+                return Error.Validation("InvalidToken", "Invalid or expired reset token.");
+            }
+
+            var user = tokenRecord.User;
+
+            if (await _userManager.IsLockedOutAsync(user))
+            {
+                return Error.Unauthorized("AccountLocked", $"Account is locked. Try again in {Math.Ceiling((user.LockoutEnd!.Value - DateTimeOffset.UtcNow).TotalMinutes)} minutes.");
+            }
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                // 1. Mark token as used
+                tokenRecord.IsUsed = true;
+
+                // 2. Perform password reset
+                var resetToken = await _userManager.GeneratePasswordResetTokenAsync(user);
+                var identityResult = await _userManager.ResetPasswordAsync(user, resetToken, resetPasswordDTO.NewPassword);
+
+                if (!identityResult.Succeeded)
+                {
+                    await transaction.RollbackAsync();
+                    return identityResult.Errors.Select(e => Error.Validation(e.Code, e.Description)).ToList();
+                }
+
+                // 3. Invalidate ALL other tokens/sessions for this user
+                var otherTokens = await _context.UserOtps
+                    .Where(o => o.UserId == user.Id && !o.IsUsed)
+                    .ToListAsync();
+                foreach (var t in otherTokens) t.IsUsed = true;
+
+                // 4. Update Security Stamp to invalidate all existing cookies/sessions
+                await _userManager.UpdateSecurityStampAsync(user);
+                
+                // 5. Reset lockout counter
+                await _userManager.ResetAccessFailedCountAsync(user);
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+                
+                return Result.Ok();
+            }
+            catch (Exception)
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        private string GenerateSecureToken()
+        {
+            var bytes = new byte[32];
+            using var rng = RandomNumberGenerator.Create();
+            rng.GetBytes(bytes);
+            return Convert.ToHexString(bytes);
         }
 
         private string GenerateOtp() => RandomNumberGenerator.GetInt32(100000, 999999).ToString();

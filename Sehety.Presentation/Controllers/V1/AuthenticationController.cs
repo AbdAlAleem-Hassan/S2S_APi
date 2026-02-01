@@ -102,6 +102,24 @@ namespace S2S.Presentation.Controllers.V1
             return HandleRequest(result);
         }
 
+        [HttpPost("ForgotPassword")]
+        public async Task<ActionResult> ForgotPassword(ForgotPasswordDTO forgotPasswordDTO)
+        {
+            var result = await _authenticationService.ForgotPasswordAsync(forgotPasswordDTO);
+            if (result.IsSuccess)
+                return Ok(new { success = true, message = "If your email exists, a reset link has been sent to your email." });
+            return HandleRequest(result);
+        }
+
+        [HttpPost("ResetPassword")]
+        public async Task<ActionResult> ResetPassword(ResetPasswordDTO resetPasswordDTO)
+        {
+            var result = await _authenticationService.ResetPasswordAsync(resetPasswordDTO);
+            if (result.IsSuccess)
+                return Ok(new { success = true, message = "Password has been reset successfully." });
+            return HandleRequest(result);
+        }
+
         private void SetRefreshTokenCookie(string refreshToken)
         {
             var cookieOptions = new CookieOptions

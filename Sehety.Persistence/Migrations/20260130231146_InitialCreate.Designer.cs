@@ -12,8 +12,8 @@ using S2S.Persistence.IdentityData.DbContexts;
 namespace S2S.Persistence.Migrations
 {
     [DbContext(typeof(S2SIdentityDbContext))]
-    [Migration("20260127193809_InitialMigration")]
-    partial class InitialMigration
+    [Migration("20260130231146_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
