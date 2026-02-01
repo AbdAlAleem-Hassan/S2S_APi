@@ -29,6 +29,7 @@ builder.Services.AddDbContext<S2SIdentityDbContext>(option =>
 
 builder.Services.AddKeyedScoped<IDataInitializer, IdentityDataInitializer>("Identity");
 builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
+builder.Services.AddHttpClient<IAiTranslationService, AiTranslationService>();
 
 
 
