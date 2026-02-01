@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using FluentValidation;
+using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -29,7 +31,12 @@ if (!string.IsNullOrEmpty(port))
 
 // Add services to the container.
 
+
 builder.Services.AddControllers();
+
+// Add FluentValidation
+builder.Services.AddFluentValidationAutoValidation();
+builder.Services.AddValidatorsFromAssemblyContaining<RegisterDTOValidator>();
 
 // Configure Forwarded Headers for Reverse Proxy (Docker/Heroku)
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
@@ -83,12 +90,13 @@ builder.Services.AddIdentityCore<ApplicationUser>(options =>
     options.Password.RequireNonAlphanumeric = true;
     options.Password.RequiredLength = 8;
     options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
-    options.Lockout.MaxFailedAccessAttempts = 5;
+    options.Lockout.MaxFailedAccessAttempts = 3;
     options.Lockout.AllowedForNewUsers = true;
     options.User.RequireUniqueEmail = true;
 })
     .AddRoles<IdentityRole>()
-    .AddEntityFrameworkStores<S2SIdentityDbContext>();
+    .AddEntityFrameworkStores<S2SIdentityDbContext>()
+    .AddDefaultTokenProviders();
 
 builder.Services.AddSwaggerGen(options =>
 {

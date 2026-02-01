@@ -16,6 +16,7 @@ namespace S2S.ServicesAbstraction
         Task<Result<UserDTO>> RefreshTokenAsync(string refreshToken);
         Task<Result> LogoutAsync(string refreshToken);
         Task<Result> ResendOtpAsync(string email);
-
+        Task<Result> ForgotPasswordAsync(ForgotPasswordDTO forgotPasswordDTO);
+        Task<Result> ResetPasswordAsync(ResetPasswordDTO resetPasswordDTO);
     }
 }
