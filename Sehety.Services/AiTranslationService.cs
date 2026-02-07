@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using S2S.ServicesAbstraction;
-using S2S.Shared.CommonResult; // تأكد من وجود هذا الـ Namespace
+using S2S.Shared.CommonResult; 
 using System.Net.Http.Headers;
 
 namespace S2S.Services
@@ -13,7 +13,24 @@ namespace S2S.Services
 		public AiTranslationService(HttpClient client, IConfiguration config)
 		{
 			_client = client;
+
 			_client.BaseAddress = new Uri(config["AISettings:BaseUrl"]);
+
+			var hfToken = config["AISettings:HFToken"];
+			if (!string.IsNullOrEmpty(hfToken))
+			{
+				_client.DefaultRequestHeaders.Authorization =
+					new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", hfToken);
+			}
+
+			var apiKey = config["AISettings:ApiKey"];
+			if (!string.IsNullOrEmpty(apiKey))
+			{
+				if (_client.DefaultRequestHeaders.Contains("x-api-key"))
+					_client.DefaultRequestHeaders.Remove("x-api-key");
+
+				_client.DefaultRequestHeaders.Add("x-api-key", apiKey);
+			}
 		}
 
 		public async Task<Result<string>> SendSignToTextAsync(IFormFile video, string language, bool includeAudio)

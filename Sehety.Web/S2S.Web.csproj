@@ -25,4 +25,8 @@
 		<ProjectReference Include="..\Sehety.Services\S2S.Services.csproj" />
 	</ItemGroup>
 
+	<ItemGroup>
+	  <Folder Include="OpenAPI\Transformers\" />
+	</ItemGroup>
+
 </Project>

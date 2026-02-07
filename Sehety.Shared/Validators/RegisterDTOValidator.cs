@@ -32,9 +32,9 @@ namespace S2S.Shared.Validators
 				.Matches(@"^\d{10,15}$").WithMessage("Phone number must be between 10 and 15 digits.");
 
 			RuleFor(x => x.DateOfBirth)
-				.LessThan(DateOnly.FromDateTime(DateTime.Now))
-				.WithMessage("Date of birth cannot be in the future.")
-				.When(x => x.DateOfBirth.HasValue);
+				.NotEmpty()
+				.WithMessage("Date of birth is required.")
+				.Must(BeAValidAge).WithMessage("Age must be between 15 and 60 years.");
 
 			RuleFor(x => x.UserType)
 				.NotEmpty().WithMessage("User Type is required.");
@@ -44,6 +44,18 @@ namespace S2S.Shared.Validators
 				RuleFor(x => x.SignLanguage)
 				.NotEmpty().WithMessage("Sign Language must be specified if 'Uses Sign Language' is true.");
 			});
+		}
+		private bool BeAValidAge(DateOnly? dateOfBirth)
+		{
+			if (!dateOfBirth.HasValue) return false;
+
+			var today = DateOnly.FromDateTime(DateTime.Today);
+			var age = today.Year - dateOfBirth.Value.Year;
+
+			// تقليل العمر بسنة إذا لم يأتِ يوم ميلاده بعد في السنة الحالية
+			if (dateOfBirth.Value > today.AddYears(-age)) age--;
+
+			return age >= 15 && age <= 80;
 		}
 	}
 }

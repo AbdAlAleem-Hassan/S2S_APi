@@ -157,6 +157,10 @@ builder.Services.AddVersionedApiExplorer(setup =>
     setup.SubstituteApiVersionInUrl = true;
 });
 
+
+
+
+
 var app = builder.Build();
 
 // Automatic Database Migrations on Startup

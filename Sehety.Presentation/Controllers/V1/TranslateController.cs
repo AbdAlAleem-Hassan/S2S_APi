@@ -1,4 +1,7 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Routing;
 using S2S.ServicesAbstraction;
 using S2S.Shared.CommonResult;
 using S2S.Shared.DataTransferObjects.V1.TranslationDTOs;
@@ -6,6 +9,7 @@ using System.Text.Json;
 
 namespace S2S.Presentation.Controllers.V1
 {
+	[Authorize]
 	[ApiVersion("1.0")]
 	[Route("api/[controller]")]
 	[Route("api/v{version:apiVersion}/[controller]")]
@@ -24,6 +28,12 @@ namespace S2S.Presentation.Controllers.V1
 
 		[HttpPost("sign-to-text")]
 		[Consumes("multipart/form-data")]
+		[ProducesResponseType<SignToTextResponseDTO>(StatusCodes.Status200OK)]
+		[ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+		[ProducesResponseType<ProblemDetails>(StatusCodes.Status500InternalServerError)]
+		//[EndpointName("Convert Sign To Text")]
+		[EndpointSummary("Send Sign and Return Text")]
+		[EndpointDescription("Process The Sign Input Using AI Model And Convert Sign To Text")]
 		public async Task<ActionResult<SignToTextResponseDTO>> SignToText([FromForm] SignToTextRequest request)
 		{
 			var serviceResult = await _service.SendSignToTextAsync(request.VideoFile, request.Language, request.IncludeAudio);
@@ -58,6 +68,12 @@ namespace S2S.Presentation.Controllers.V1
 
 		[HttpPost("text-to-sign")]
 		[Consumes("multipart/form-data")]
+		[ProducesResponseType<ToSignResponseDTO>(StatusCodes.Status200OK)]
+		[ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+		[ProducesResponseType<ProblemDetails>(StatusCodes.Status500InternalServerError)]
+		//[EndpointName("Convert Text To Sign")]
+		[EndpointSummary("Send Text and Return Sign")]
+		[EndpointDescription("Process The Text Input Using AI Model And Convert Text To Avatar")]
 		public async Task<ActionResult<ToSignResponseDTO>> TextToSign([FromForm] TextToSignRequest request)
 		{
 			var serviceResult = await _service.SendTextToSignAsync(request.Text, request.Avatar, request.Speed);
@@ -87,6 +103,12 @@ namespace S2S.Presentation.Controllers.V1
 
 		[HttpPost("audio-to-sign")]
 		[Consumes("multipart/form-data")]
+		[ProducesResponseType<ToSignResponseDTO>(StatusCodes.Status200OK)]
+		[ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+		[ProducesResponseType<ProblemDetails>(StatusCodes.Status500InternalServerError)]
+		//[EndpointName("Convert Audio To Sign")]
+		[EndpointSummary("Send Audio and Return Sign")]
+		[EndpointDescription("Process The Audio Input Using AI Model And Convert Audio To Avatar")]
 		public async Task<ActionResult<ToSignResponseDTO>> AudioToSign([FromForm] AudioToSignRequest request)
 		{
 			var serviceResult = await _service.SendAudioToSignAsync(request.AudioFile, request.Avatar, request.Speed);

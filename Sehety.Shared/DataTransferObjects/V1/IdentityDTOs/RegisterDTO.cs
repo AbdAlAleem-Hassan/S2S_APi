@@ -17,6 +17,7 @@ namespace S2S.Shared.DataTransferObjects.V1.IdentityDTOs
         [NoHtml]
         string DisplayName,
 
+       
         DateOnly? DateOfBirth,
 
         [Required(ErrorMessage = "Username is required")]
