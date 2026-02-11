@@ -34,7 +34,7 @@ namespace S2S.Shared.Validators
 			RuleFor(x => x.DateOfBirth)
 				.NotEmpty()
 				.WithMessage("Date of birth is required.")
-				.Must(BeAValidAge).WithMessage("Age must be between 15 and 60 years.");
+				.Must(BeAValidAge).WithMessage("Age must be between 15 and 80 years.");
 
 			RuleFor(x => x.UserType)
 				.NotEmpty().WithMessage("User Type is required.");
