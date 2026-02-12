@@ -19,6 +19,7 @@ using System.Text;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
 using S2S.Shared.Mappings;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -30,7 +31,10 @@ if (!string.IsNullOrEmpty(port))
 }
 
 // Add services to the container.
-
+#region Serilog Logging Conf
+builder.Host.UseSerilog((context, loggerConfiguration) =>
+    loggerConfiguration.ReadFrom.Configuration(builder.Configuration));
+#endregion
 
 builder.Services.AddControllers();
 
@@ -189,6 +193,8 @@ if (app.Environment.IsDevelopment() || builder.Configuration.GetValue("EnableSwa
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+app.UseSerilogRequestLogging();
 
 app.UseForwardedHeaders();
 app.UseHttpsRedirection();

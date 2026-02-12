@@ -1,0 +1,49 @@
+services:
+  s2sservice:
+    build:
+      context: .
+      dockerfile: Sehety.Web/Dockerfile
+    ports:
+      - 5069:80
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:80
+      - ConnectionStrings__DefaultConnection=Server=mssql;Database=S2SDb;User Id=sa;Password=YourStrong!Passw0rd;TrustServerCertificate=True;
+    depends_on:
+      - mssql  
+    networks:
+      - S2S
+
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: sql_server_container
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=YourStrong!Passw0rd
+    ports:
+      - "1433:1433"
+    volumes:
+      - sql_server_data:/var/opt/mssql
+    networks:
+      - S2S  
+
+  ops.seq:
+    image: datalust/seq:latest
+    container_name: Ops.Seq
+    volumes:
+      - ./containers/seq:/data
+    environment:
+      - ACCEPT_EULA=Y
+      - SEQ_FIRSTRUN_ADMINPASSWORD=P@ssw0rd123!
+    networks:
+      - S2S
+    ports:
+      - 5341:5341
+      - 8081:80
+
+volumes:
+  sql_server_data: {}
+
+networks:
+  S2S:
+    driver: bridge
