@@ -630,5 +630,30 @@ namespace S2S.Services
 				return Error.Failure("GoogleLoginError", "An unexpected error occurred during Google login.");
 			}
 		}
+
+		public async Task<Result> UpdateFcmTokenAsync(string email, string fcmToken)
+		{
+			_logger.LogInformation("Processing Update FCM Token request.");
+
+			var user = await _userManager.FindByEmailAsync(email);
+			if (user == null)
+			{
+				_logger.LogWarning("Update FCM Token failed: User not found.");
+				return Error.NotFound("UserNotFound", "User does not exist.");
+			}
+
+			user.FcmToken = fcmToken;
+			var updateResult = await _userManager.UpdateAsync(user);
+
+			if (!updateResult.Succeeded)
+			{
+				var errorCodes = string.Join(", ", updateResult.Errors.Select(e => e.Code));
+				_logger.LogError("Update FCM Token failed. UserId: {UserId}, Errors: {Errors}", user.Id, errorCodes);
+				return Error.Failure("UpdateFailed", "Failed to update FCM token.");
+			}
+
+			_logger.LogInformation("FCM Token updated successfully. UserId: {UserId}", user.Id);
+			return Result.Ok();
+		}
 	}
 }

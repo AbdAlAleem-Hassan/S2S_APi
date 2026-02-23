@@ -18,7 +18,8 @@ namespace S2S.Domain.Entities.IdentityModule
         public Address? Address { get; set; }
         public string? RefreshToken { get; set; }
         public DateTime? RefreshTokenExpiryTime { get; set; }
-        public ICollection<UserOtp> Otps { get; set; } = new List<UserOtp>();
+		public string? FcmToken { get; set; } // هيتحفظ فيه التوكن بتاع الموبايل
+		public ICollection<UserOtp> Otps { get; set; } = new List<UserOtp>();
 
 	}
 }

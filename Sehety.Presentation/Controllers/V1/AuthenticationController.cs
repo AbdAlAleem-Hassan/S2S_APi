@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using S2S.ServicesAbstraction;
+using S2S.Shared.DataTransferObjects.V1.FirebaseDTOs;
 using S2S.Shared.DataTransferObjects.V1.GoogleIdentity;
 using S2S.Shared.DataTransferObjects.V1.IdentityDTOs;
 using System.Security.Claims;
@@ -171,5 +172,23 @@ namespace S2S.Presentation.Controllers.V1
 			var Result = await _authenticationService.GetUserByEmailAsync(Email!);
 			return HandleRequest(Result);
 		}
+
+		[Authorize]
+		[HttpPost("UpdateFcmToken")]
+		public async Task<ActionResult> UpdateFcmToken([FromBody] UpdateFcmTokenDTO updateFcmTokenDTO)
+		{
+			// بنجيب إيميل اليوزر من التوكن بتاعه
+			var email = User.FindFirstValue(ClaimTypes.Email);
+
+			if (string.IsNullOrEmpty(email))
+				return Unauthorized(new { message = "Invalid token or user not logged in." });
+
+			// بنبعت الإيميل والتوكن للـ Service عشان هي اللي تتعامل مع الداتابيس
+			var result = await _authenticationService.UpdateFcmTokenAsync(email, updateFcmTokenDTO.FcmToken);
+
+			// بنستخدم دالتك الموحدة للرد
+			return HandleRequest(result);
+		}
+
 	}
 }

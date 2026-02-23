@@ -1,10 +1,13 @@
-using Microsoft.AspNetCore.Authentication.JwtBearer;
+using FirebaseAdmin;
 using FluentValidation;
 using FluentValidation.AspNetCore;
+using Google.Apis.Auth.OAuth2;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Versioning;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using S2S.Domain.Contracts;
@@ -13,13 +16,12 @@ using S2S.Persistence.IdentityData.DataSeed;
 using S2S.Persistence.IdentityData.DbContexts;
 using S2S.Services;
 using S2S.ServicesAbstraction;
+using S2S.Shared.Mappings;
 using S2S.Shared.Validators;
+using Serilog;
 using System.Data.Common;
 using System.Text;
 using System.Threading.RateLimiting;
-using Microsoft.AspNetCore.RateLimiting;
-using S2S.Shared.Mappings;
-using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -82,6 +84,7 @@ builder.Services.AddDbContext<S2SIdentityDbContext>(option =>
 builder.Services.AddKeyedScoped<IDataInitializer, IdentityDataInitializer>("Identity");
 builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
+builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddHttpClient<IAiTranslationService, AiTranslationService>();
 
 // AutoMapper Configuration
@@ -160,6 +163,39 @@ builder.Services.AddVersionedApiExplorer(setup =>
     setup.GroupNameFormat = "'v'VVV";
     setup.SubstituteApiVersionInUrl = true;
 });
+
+#region Fire Base Admin SDK Initialization
+// 1. „Õ«Ê·… ﬁ—«¡… «·„› «Õ ﬂ‰’ „‰ «·‹ Environment Variables („›Ìœ… ·‹ Heroku)
+var firebaseJson = builder.Configuration["FIREBASE_CONFIG"];
+
+if (!string.IsNullOrEmpty(firebaseJson))
+{
+	// ·Ê ≈Õ‰« ⁄·Ï Heroku Ê·ﬁÌ‰« «·‹ JSON° Â‰ﬁ—√Â „»«‘—…
+	FirebaseApp.Create(new AppOptions()
+	{
+		Credential = GoogleCredential.FromJson(firebaseJson)
+	});
+}
+else
+{
+	// 2. ·Ê ≈Õ‰« Local° Â‰ﬁ—√ „”«— «·„·› „‰ «·‹ appsettings
+	var firebaseCredPath = builder.Configuration["Firebase:CredentialsPath"];
+	var fullPath = Path.Combine(Directory.GetCurrentDirectory(), firebaseCredPath!);
+
+	if (File.Exists(fullPath))
+	{
+		FirebaseApp.Create(new AppOptions()
+		{
+			Credential = GoogleCredential.FromFile(fullPath)
+		});
+	}
+	else
+	{
+		//  ”ÃÌ·  Õ–Ì— ·Ê «·„·› „‘ „ÊÃÊœ ⁄‘«‰ „ ‰”«‘  ÕÿÂ
+		Console.WriteLine("Firebase warning: Credentials file not found!");
+	}
+}
+#endregion
 
 
 

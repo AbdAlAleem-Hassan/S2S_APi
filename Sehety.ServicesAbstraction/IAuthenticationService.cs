@@ -20,5 +20,6 @@ namespace S2S.ServicesAbstraction
         Task<Result> ForgotPasswordAsync(ForgotPasswordDTO forgotPasswordDTO);
         Task<Result> ResetPasswordAsync(ResetPasswordDTO resetPasswordDTO);
 		Task<Result<UserDTO>> LoginWithGoogleAsync(GoogleLoginDTO googleLoginDTO);
+		Task<Result> UpdateFcmTokenAsync(string email, string fcmToken);
 	}
 }
