@@ -1,4 +1,5 @@
 ﻿using S2S.Shared.CommonResult;
+using S2S.Shared.DataTransferObjects.V1.GoogleIdentity;
 using S2S.Shared.DataTransferObjects.V1.IdentityDTOs;
 using System;
 using System.Collections.Generic;
@@ -18,5 +19,6 @@ namespace S2S.ServicesAbstraction
         Task<Result> ResendOtpAsync(string email);
         Task<Result> ForgotPasswordAsync(ForgotPasswordDTO forgotPasswordDTO);
         Task<Result> ResetPasswordAsync(ResetPasswordDTO resetPasswordDTO);
-    }
+		Task<Result<UserDTO>> LoginWithGoogleAsync(GoogleLoginDTO googleLoginDTO);
+	}
 }

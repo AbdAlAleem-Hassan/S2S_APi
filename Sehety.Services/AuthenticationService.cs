@@ -1,18 +1,21 @@
 ﻿using AutoMapper;
+using Google.Apis.Auth;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.SqlServer.Server;
 using S2S.Domain.Entities.IdentityModule;
+using S2S.Persistence.IdentityData.DbContexts;
 using S2S.ServicesAbstraction;
 using S2S.Shared.CommonResult;
+using S2S.Shared.DataTransferObjects.V1.GoogleIdentity;
 using S2S.Shared.DataTransferObjects.V1.IdentityDTOs;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Text;
-using S2S.Persistence.IdentityData.DbContexts;
 using System.Security.Cryptography;
-using Microsoft.Extensions.Logging;
+using System.Text;
 
 namespace S2S.Services
 {
@@ -544,6 +547,88 @@ namespace S2S.Services
 				);
 
 			return new JwtSecurityTokenHandler().WriteToken(Token);
+		}
+
+		public async Task<Result<UserDTO>> LoginWithGoogleAsync(GoogleLoginDTO googleLoginDTO)
+		{
+			_logger.LogInformation("Processing Google login request.");
+
+			try
+			{
+				// 1. التحقق من التوكن القادم من جوجل
+				var settings = new GoogleJsonWebSignature.ValidationSettings()
+				{
+					Audience = new List<string> { _configuration["Authentication:Google:ClientId"]! }
+				};
+
+				var payload = await GoogleJsonWebSignature.ValidateAsync(googleLoginDTO.IdToken, settings);
+
+				if (payload == null)
+				{
+					_logger.LogWarning("Google login failed: Invalid token payload.");
+					return Error.Unauthorized("InvalidGoogleToken", "Invalid Google Token.");
+				}
+
+				// 2. البحث عن المستخدم في قاعدة البيانات
+				var user = await _userManager.FindByEmailAsync(payload.Email);
+
+				// 3. إذا كان المستخدم جديداً، نقوم بإنشائه
+				if (user == null)
+				{
+					_logger.LogInformation("New user registering via Google. Email: {Email}", payload.Email);
+
+					user = new ApplicationUser
+					{
+						Email = payload.Email,
+						UserName = payload.Email.Split('@')[0] + Guid.NewGuid().ToString().Substring(0, 4),
+						EmailConfirmed = true,
+
+						// --- السطر ده اللي هيحل المشكلة ---
+						DisplayName = payload.Name ?? payload.GivenName ?? payload.Email.Split('@')[0],
+
+						// لو عندك حقول تانية (Required) في الداتابيس زي DateOfBirth مثلاً، لازم تديها قيمة افتراضية هنا
+						// DateOfBirth = DateOnly.FromDateTime(DateTime.UtcNow) // كمثال لو كان مطلوب
+					};
+
+					var createResult = await _userManager.CreateAsync(user);
+					if (!createResult.Succeeded)
+					{
+						var errors = string.Join(", ", createResult.Errors.Select(e => e.Code));
+						_logger.LogError("Failed to create user from Google. Errors: {Errors}", errors);
+						return Error.Failure("UserCreationFailed", "Failed to create user account.");
+					}
+
+					// ربط حساب جوجل بالمستخدم
+					await _userManager.AddLoginAsync(user, new UserLoginInfo("Google", payload.Subject, "Google"));
+				}
+
+				// 4. توليد الـ JWT الخاص بنظامك (S2S)
+				var token = await CreateAccessTokenAsync(user);
+
+				user.RefreshToken = GenerateRefreshToken();
+				if (!int.TryParse(_configuration["JWTOptions:RefreshTokenExpiryInDays"], out int expiryDays))
+					expiryDays = 7;
+
+				user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(expiryDays);
+				user.LastLoginAt = DateTime.UtcNow;
+
+				await _userManager.UpdateAsync(user);
+
+				_logger.LogInformation("Google login successful. UserId: {UserId}", user.Id);
+
+				// 5. استخدام دالة المابينج الخاصة بك لإرجاع البيانات
+				return await MapToUserDTOAsync(user);
+			}
+			catch (InvalidJwtException ex)
+			{
+				_logger.LogWarning(ex, "Google login failed: Invalid or expired JWT.");
+				return Error.Unauthorized("InvalidGoogleToken", "The provided Google token is invalid or expired.");
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Exception occurred during Google login.");
+				return Error.Failure("GoogleLoginError", "An unexpected error occurred during Google login.");
+			}
 		}
 	}
 }

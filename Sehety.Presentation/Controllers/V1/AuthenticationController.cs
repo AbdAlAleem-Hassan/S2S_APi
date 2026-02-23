@@ -1,8 +1,9 @@
-﻿using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using S2S.ServicesAbstraction;
+using S2S.Shared.DataTransferObjects.V1.GoogleIdentity;
 using S2S.Shared.DataTransferObjects.V1.IdentityDTOs;
 using System.Security.Claims;
 
@@ -34,6 +35,27 @@ namespace S2S.Presentation.Controllers.V1
             }
 			return HandleRequest(result);
 		}
+
+		[HttpPost("google-login")]
+		public async Task<ActionResult<UserDTO>> GoogleLogin([FromBody] GoogleLoginDTO googleLoginDTO)
+		{
+			// لا حاجة لـ ModelState.IsValid هنا لأن [ApiController] في ApiBaseController تقوم بذلك تلقائياً
+
+			var result = await _authenticationService.LoginWithGoogleAsync(googleLoginDTO);
+
+			if (result.IsSuccess && result.Value.RefreshToken != null)
+			{
+				// For web clients: set cookie
+				SetRefreshTokenCookie(result.Value.RefreshToken);
+
+				// For mobile clients: include refresh token in response body
+				return Ok(result.Value);
+			}
+
+			// استخدام دالة الـ Base Controller الموحدة للتعامل مع الأخطاء
+			return HandleRequest(result);
+		}
+
 
 		//POST baseUrl/api/Authentication/Register
 		[HttpPost("Register")]
