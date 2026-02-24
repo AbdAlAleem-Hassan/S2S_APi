@@ -22,7 +22,8 @@ namespace S2S.Presentation.Controllers.V1
 			var request = HttpContext.Request;
 			var baseUrl = $"{request.Scheme}://{request.Host}{request.PathBase}";
 
-			return $"{baseUrl}/api/media/{type}/{fileName}";
+			// التعديل هنا: شيلنا /api/ عشان يقرأ من فولدر wwwroot مباشرة
+			return $"{baseUrl}/media/{type}/{fileName}";
 		}
 
 		[HttpPost("sign-to-text")]
@@ -53,7 +54,19 @@ namespace S2S.Presentation.Controllers.V1
 					if (audioJsonElement.ValueKind == JsonValueKind.String)
 					{
 						string originalUrl = audioJsonElement.GetString();
-						resultDto.translation["audio_url"] = RewriteUrl(originalUrl, "audio");
+						string fileName = Path.GetFileName(originalUrl);
+
+						// 👈 هنا بنحمل الملف ونحفظه
+						var downloadResult = await _service.DownloadAndSaveMediaAsync(fileName, "audio");
+
+						if (downloadResult.IsSuccess)
+						{
+							resultDto.translation["audio_url"] = RewriteUrl(fileName, "audio");
+						}
+						else
+						{
+							resultDto.translation["audio_url"] = null;
+						}
 					}
 				}
 

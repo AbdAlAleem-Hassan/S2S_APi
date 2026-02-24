@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using S2S.ServicesAbstraction;
@@ -11,11 +12,13 @@ namespace S2S.Services
 	{
 		private readonly HttpClient _client;
 		private readonly ILogger<AiTranslationService> _logger;
+		private readonly IWebHostEnvironment _env;
 
-		public AiTranslationService(HttpClient client, IConfiguration config, ILogger<AiTranslationService> logger)
+		public AiTranslationService(HttpClient client, IConfiguration config, ILogger<AiTranslationService> logger, IWebHostEnvironment env)
 		{
 			_client = client;
 			_logger = logger;
+			_env = env;
 			_client.BaseAddress = new Uri(config["AISettings:BaseUrl"]);
 
 			var hfToken = config["AISettings:HFToken"];
@@ -173,6 +176,34 @@ namespace S2S.Services
 			{
 				_logger.LogError(ex, "Exception occurred during AudioToSign for file: {FileName}", audio.FileName);
 				return Error.Failure("AiServer.Connection", $"Failed to connect to AI Server: {ex.Message}");
+			}
+		}
+
+		public async Task<Result<string>> DownloadAndSaveMediaAsync(string fileName, string type)
+		{
+			try
+			{
+				var requestUri = $"media/{type}/{fileName}";
+				var response = await _client.GetAsync(requestUri);
+
+				if (!response.IsSuccessStatusCode)
+					return Error.Failure("MediaDownloadFailed", "Failed to download media from AI Server.");
+
+				var webRootPath = _env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+				var uploadsFolder = Path.Combine(webRootPath, "media", type);
+
+				if (!Directory.Exists(uploadsFolder))
+					Directory.CreateDirectory(uploadsFolder);
+
+				var filePath = Path.Combine(uploadsFolder, fileName);
+				var fileBytes = await response.Content.ReadAsByteArrayAsync();
+				await File.WriteAllBytesAsync(filePath, fileBytes);
+
+				return Result<string>.Ok(fileName);
+			}
+			catch (Exception ex)
+			{
+				return Error.Failure("MediaSaveError", ex.Message);
 			}
 		}
 	}

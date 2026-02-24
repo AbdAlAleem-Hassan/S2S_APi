@@ -234,6 +234,7 @@ app.UseSerilogRequestLogging();
 
 app.UseForwardedHeaders();
 app.UseHttpsRedirection();
+app.UseStaticFiles();
 app.UseCors("AllowAll");
 app.UseRateLimiter();
 app.UseAuthentication();
