@@ -1,4 +1,5 @@
 ﻿using AutoMapper;
+using FirebaseAdmin.Auth;
 using Google.Apis.Auth;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -10,6 +11,7 @@ using S2S.Domain.Entities.IdentityModule;
 using S2S.Persistence.IdentityData.DbContexts;
 using S2S.ServicesAbstraction;
 using S2S.Shared.CommonResult;
+using S2S.Shared.DataTransferObjects.V1.FirebaseDTOs;
 using S2S.Shared.DataTransferObjects.V1.GoogleIdentity;
 using S2S.Shared.DataTransferObjects.V1.IdentityDTOs;
 using System.IdentityModel.Tokens.Jwt;
@@ -451,6 +453,16 @@ namespace S2S.Services
 				await _context.SaveChangesAsync();
 				await transaction.CommitAsync();
 
+				// Send security notification email 
+				try
+				{
+					await _emailService.SendPasswordChangedEmailAsync(user.Email!, user.DisplayName ?? user.UserName!);
+				}
+				catch (Exception ex)
+				{
+					_logger.LogError(ex, "Failed to send password changed notification email. UserId: {UserId}", user.Id);
+				}
+
 				_logger.LogInformation("Password reset successful. UserId: {UserId}", user.Id);
 				return Result.Ok();
 			}
@@ -525,7 +537,8 @@ namespace S2S.Services
 			{
 				new Claim(JwtRegisteredClaimNames.Email, user.Email!),
 				new Claim(JwtRegisteredClaimNames.Name, user.UserName!),
-				new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+				new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+				new Claim(JwtRegisteredClaimNames.Sub, user.Id)  // User ID for secure operations
 			};
 
 			var roles = await _userManager.GetRolesAsync(user);
@@ -549,13 +562,14 @@ namespace S2S.Services
 			return new JwtSecurityTokenHandler().WriteToken(Token);
 		}
 
+		/*
 		public async Task<Result<UserDTO>> LoginWithGoogleAsync(GoogleLoginDTO googleLoginDTO)
 		{
-			_logger.LogInformation("Processing Google login request.");
+			_logger.LogInformation("Processing raw Google OAuth login request.");
 
 			try
 			{
-				// 1. التحقق من التوكن القادم من جوجل
+				// 1. Validate Google ID Token directly (for clients NOT using Firebase)
 				var settings = new GoogleJsonWebSignature.ValidationSettings()
 				{
 					Audience = new List<string> { _configuration["Authentication:Google:ClientId"]! }
@@ -566,69 +580,135 @@ namespace S2S.Services
 				if (payload == null)
 				{
 					_logger.LogWarning("Google login failed: Invalid token payload.");
-					return Error.Unauthorized("InvalidGoogleToken", "Invalid Google Token.");
+					return Error.Unauthorized("InvalidGoogleToken", "The provided Google token is invalid or expired.");
 				}
 
-				// 2. البحث عن المستخدم في قاعدة البيانات
+				// 2. Find or create user
 				var user = await _userManager.FindByEmailAsync(payload.Email);
 
-				// 3. إذا كان المستخدم جديداً، نقوم بإنشائه
 				if (user == null)
 				{
-					_logger.LogInformation("New user registering via Google. Email: {Email}", payload.Email);
+					_logger.LogInformation("New user registering via raw Google OAuth. Email: {Email}", payload.Email);
 
 					user = new ApplicationUser
 					{
 						Email = payload.Email,
-						UserName = payload.Email.Split('@')[0] + Guid.NewGuid().ToString().Substring(0, 4),
+						UserName = payload.Email.Split('@')[0] + Guid.NewGuid().ToString()[..4],
 						EmailConfirmed = true,
-
-						// --- السطر ده اللي هيحل المشكلة ---
 						DisplayName = payload.Name ?? payload.GivenName ?? payload.Email.Split('@')[0],
-
-						// لو عندك حقول تانية (Required) في الداتابيس زي DateOfBirth مثلاً، لازم تديها قيمة افتراضية هنا
-						// DateOfBirth = DateOnly.FromDateTime(DateTime.UtcNow) // كمثال لو كان مطلوب
 					};
 
 					var createResult = await _userManager.CreateAsync(user);
 					if (!createResult.Succeeded)
 					{
-						var errors = string.Join(", ", createResult.Errors.Select(e => e.Code));
-						_logger.LogError("Failed to create user from Google. Errors: {Errors}", errors);
 						return Error.Failure("UserCreationFailed", "Failed to create user account.");
 					}
 
-					// ربط حساب جوجل بالمستخدم
 					await _userManager.AddLoginAsync(user, new UserLoginInfo("Google", payload.Subject, "Google"));
 				}
+				else if (await _userManager.IsLockedOutAsync(user))
+				{
+					return Error.Unauthorized("AccountLocked", "Your account is temporarily locked.");
+				}
 
-				// 4. توليد الـ JWT الخاص بنظامك (S2S)
-				var token = await CreateAccessTokenAsync(user);
-
-				user.RefreshToken = GenerateRefreshToken();
-				if (!int.TryParse(_configuration["JWTOptions:RefreshTokenExpiryInDays"], out int expiryDays))
-					expiryDays = 7;
-
-				user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(expiryDays);
-				user.LastLoginAt = DateTime.UtcNow;
-
-				await _userManager.UpdateAsync(user);
-
-				_logger.LogInformation("Google login successful. UserId: {UserId}", user.Id);
-
-				// 5. استخدام دالة المابينج الخاصة بك لإرجاع البيانات
-				return await MapToUserDTOAsync(user);
-			}
-			catch (InvalidJwtException ex)
-			{
-				_logger.LogWarning(ex, "Google login failed: Invalid or expired JWT.");
-				return Error.Unauthorized("InvalidGoogleToken", "The provided Google token is invalid or expired.");
+				// 3. Generate internal tokens
+				return await ProcessLoginAsync(user);
 			}
 			catch (Exception ex)
 			{
-				_logger.LogError(ex, "Exception occurred during Google login.");
-				return Error.Failure("GoogleLoginError", "An unexpected error occurred during Google login.");
+				_logger.LogError(ex, "Exception during Google OAuth login.");
+				return Error.Failure("GoogleLoginError", "An error occurred during Google login.");
 			}
+		}
+		*/
+
+		public async Task<Result<UserDTO>> LoginWithFirebaseAsync(FirebaseLoginDTO firebaseLoginDTO)
+		{
+			_logger.LogInformation("Processing Firebase Admin SDK login request.");
+
+			try
+			{
+				// 1. Check if Firebase is initialized
+				if (FirebaseAuth.DefaultInstance == null)
+				{
+					_logger.LogError("Firebase Auth is not initialized.");
+					return Error.Failure("FirebaseNotInitialized", "Firebase is not configured on the server.");
+				}
+
+				// 2. Verify Firebase ID Token
+				FirebaseToken decodedToken = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(firebaseLoginDTO.IdToken);
+
+				var firebaseUid = decodedToken.Uid;
+				decodedToken.Claims.TryGetValue("email", out var emailObj);
+				decodedToken.Claims.TryGetValue("name", out var nameObj);
+
+				var email = emailObj?.ToString();
+				var displayName = nameObj?.ToString();
+
+				if (string.IsNullOrEmpty(email))
+				{
+					return Error.Unauthorized("InvalidFirebaseToken", "Firebase token missing email.");
+				}
+
+				// 3. Find or create user
+				var user = await _userManager.FindByEmailAsync(email);
+
+				if (user == null)
+				{
+					_logger.LogInformation("New user registering via Firebase Admin. Email: {Email}", email);
+
+					user = new ApplicationUser
+					{
+						Email = email,
+						UserName = email.Split('@')[0] + Guid.NewGuid().ToString()[..4],
+						EmailConfirmed = true,
+						DisplayName = displayName ?? email.Split('@')[0],
+					};
+
+					var createResult = await _userManager.CreateAsync(user);
+					if (!createResult.Succeeded)
+					{
+						return Error.Failure("UserCreationFailed", "Failed to create user account.");
+					}
+
+					await _userManager.AddLoginAsync(user, new UserLoginInfo("Firebase", firebaseUid, "Google via Firebase"));
+				}
+				else if (await _userManager.IsLockedOutAsync(user))
+				{
+					return Error.Unauthorized("AccountLocked", "Your account is temporarily locked.");
+				}
+
+				// 4. Generate internal tokens
+				return await ProcessLoginAsync(user);
+			}
+			catch (FirebaseAuthException ex)
+			{
+				_logger.LogWarning(ex, "Firebase token verification failed.");
+				return Error.Unauthorized("InvalidFirebaseToken", "The provided Firebase token is invalid or expired.");
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Exception during Firebase login.");
+				return Error.Failure("FirebaseLoginError", "An unexpected error occurred during Firebase login.");
+			}
+		}
+
+		private async Task<Result<UserDTO>> ProcessLoginAsync(ApplicationUser user)
+		{
+			var token = await CreateAccessTokenAsync(user);
+
+			user.RefreshToken = GenerateRefreshToken();
+			if (!int.TryParse(_configuration["JWTOptions:RefreshTokenExpiryInDays"], out int expiryDays))
+				expiryDays = 7;
+
+			user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(expiryDays);
+			user.LastLoginAt = DateTime.UtcNow;
+
+			await _userManager.UpdateAsync(user);
+
+			_logger.LogInformation("Login successful. UserId: {UserId}", user.Id);
+
+			return await MapToUserDTOAsync(user);
 		}
 
 		public async Task<Result> UpdateFcmTokenAsync(string email, string fcmToken)
@@ -654,6 +734,121 @@ namespace S2S.Services
 
 			_logger.LogInformation("FCM Token updated successfully. UserId: {UserId}", user.Id);
 			return Result.Ok();
+		}
+
+		public async Task<Result> ChangePasswordAsync(string userId, ChangePasswordDTO changePasswordDTO)
+		{
+			_logger.LogInformation("Processing Change Password request. UserId: {UserId}", userId);
+
+			// 1. Find user by Id 
+			var user = await _userManager.FindByIdAsync(userId);
+			if (user == null)
+			{
+				_logger.LogWarning("Change Password failed: User not found. UserId: {UserId}", userId);
+				return Error.NotFound("UserNotFound", "User not found.");
+			}
+
+			// 2. Ensure account is not locked
+			if (await _userManager.IsLockedOutAsync(user))
+			{
+				var remaining = Math.Ceiling((user.LockoutEnd!.Value - DateTimeOffset.UtcNow).TotalMinutes);
+				_logger.LogWarning("Change Password denied: Account locked. UserId: {UserId}", user.Id);
+				return Error.Unauthorized("AccountLocked", $"Account is locked. Try again in {remaining} minutes.");
+			}
+
+			// 3. Verify current password
+			var isCurrentPasswordValid = await _userManager.CheckPasswordAsync(user, changePasswordDTO.CurrentPassword);
+			if (!isCurrentPasswordValid)
+			{
+				await _userManager.AccessFailedAsync(user);
+				_logger.LogWarning("Change Password failed: Wrong current password. UserId: {UserId}", user.Id);
+				return Error.Validation("InvalidCurrentPassword", "Current password is incorrect.");
+			}
+
+			// 4. Check password history (last 5 passwords must not be reused)
+			const int PasswordHistoryLimit = 5;
+			var recentPasswords = await _context.UserPasswordHistories
+				.Where(p => p.UserId == user.Id)
+				.OrderByDescending(p => p.CreatedAt)
+				.Take(PasswordHistoryLimit)
+				.ToListAsync();
+
+			var passwordHasher = new Microsoft.AspNetCore.Identity.PasswordHasher<ApplicationUser>();
+			foreach (var old in recentPasswords)
+			{
+				var verificationResult = passwordHasher.VerifyHashedPassword(user, old.PasswordHash, changePasswordDTO.NewPassword);
+				if (verificationResult != Microsoft.AspNetCore.Identity.PasswordVerificationResult.Failed)
+				{
+					_logger.LogWarning("Change Password denied: New password matches a previously used password. UserId: {UserId}", user.Id);
+					return Error.Validation("PasswordPreviouslyUsed", $"You cannot reuse any of your last {PasswordHistoryLimit} passwords.");
+				}
+			}
+
+			// 5. Perform password change inside a transaction
+			using var transaction = await _context.Database.BeginTransactionAsync();
+			try
+			{
+				// 5a. Change the password via Identity
+				var identityResult = await _userManager.ChangePasswordAsync(user, changePasswordDTO.CurrentPassword, changePasswordDTO.NewPassword);
+				if (!identityResult.Succeeded)
+				{
+					await transaction.RollbackAsync();
+					var errorCodes = string.Join(", ", identityResult.Errors.Select(e => e.Code));
+					_logger.LogError("Change Password failed: Identity errors. UserId: {UserId}, Errors: {Errors}", user.Id, errorCodes);
+					return identityResult.Errors.Select(e => Error.Validation(e.Code, e.Description)).ToList();
+				}
+
+				
+				var newHashForHistory = passwordHasher.HashPassword(user, changePasswordDTO.NewPassword);
+				_context.UserPasswordHistories.Add(new UserPasswordHistory
+				{
+					UserId = user.Id,
+					PasswordHash = newHashForHistory,
+					CreatedAt = DateTime.UtcNow
+				});
+
+				// 5c. Trim history to keep only the last PasswordHistoryLimit records
+				var allHistory = await _context.UserPasswordHistories
+					.Where(p => p.UserId == user.Id)
+					.OrderByDescending(p => p.CreatedAt)
+					.ToListAsync();
+
+				var toDelete = allHistory.Skip(PasswordHistoryLimit).ToList();
+				if (toDelete.Count > 0)
+					_context.UserPasswordHistories.RemoveRange(toDelete);
+
+				// 5d. Invalidate ALL active sessions:
+				//     - Clear refresh token → prevents token refresh
+				//     - Update security stamp → invalidates existing JWTs (if SecurityStamp validation is enabled)
+				user.RefreshToken = null;
+				user.RefreshTokenExpiryTime = null;
+				await _userManager.UpdateSecurityStampAsync(user);
+
+				// 5e. Reset failed login counter
+				await _userManager.ResetAccessFailedCountAsync(user);
+
+				await _context.SaveChangesAsync();
+				await transaction.CommitAsync();
+
+				// Send security notification email 
+				try
+				{
+					await _emailService.SendPasswordChangedEmailAsync(user.Email!, user.DisplayName ?? user.UserName!);
+				}
+				catch (Exception ex)
+				{
+					_logger.LogError(ex, "Failed to send password changed notification email. UserId: {UserId}", user.Id);
+				}
+
+				_logger.LogInformation("Password changed successfully. All sessions invalidated. UserId: {UserId}", user.Id);
+				return Result.Ok();
+			}
+			catch (Exception ex)
+			{
+				await transaction.RollbackAsync();
+				_logger.LogError(ex, "Exception during Change Password transaction. UserId: {UserId}", user.Id);
+				throw;
+			}
 		}
 	}
 }
