@@ -11,6 +11,7 @@ using S2S.Domain.Entities.IdentityModule;
 using S2S.Persistence.IdentityData.DbContexts;
 using S2S.ServicesAbstraction;
 using S2S.Shared.CommonResult;
+using S2S.Shared.DataTransferObjects.V1.FirebaseDTOs;
 using S2S.Shared.DataTransferObjects.V1.GoogleIdentity;
 using S2S.Shared.DataTransferObjects.V1.IdentityDTOs;
 using System.IdentityModel.Tokens.Jwt;
@@ -561,14 +562,81 @@ namespace S2S.Services
 			return new JwtSecurityTokenHandler().WriteToken(Token);
 		}
 
+		/*
 		public async Task<Result<UserDTO>> LoginWithGoogleAsync(GoogleLoginDTO googleLoginDTO)
 		{
-			_logger.LogInformation("Processing Firebase Google login request.");
+			_logger.LogInformation("Processing raw Google OAuth login request.");
 
 			try
 			{
-				// 1. Verify Firebase ID Token (works for Flutter & web Firebase Auth)
-				FirebaseToken decodedToken = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(googleLoginDTO.IdToken);
+				// 1. Validate Google ID Token directly (for clients NOT using Firebase)
+				var settings = new GoogleJsonWebSignature.ValidationSettings()
+				{
+					Audience = new List<string> { _configuration["Authentication:Google:ClientId"]! }
+				};
+
+				var payload = await GoogleJsonWebSignature.ValidateAsync(googleLoginDTO.IdToken, settings);
+
+				if (payload == null)
+				{
+					_logger.LogWarning("Google login failed: Invalid token payload.");
+					return Error.Unauthorized("InvalidGoogleToken", "The provided Google token is invalid or expired.");
+				}
+
+				// 2. Find or create user
+				var user = await _userManager.FindByEmailAsync(payload.Email);
+
+				if (user == null)
+				{
+					_logger.LogInformation("New user registering via raw Google OAuth. Email: {Email}", payload.Email);
+
+					user = new ApplicationUser
+					{
+						Email = payload.Email,
+						UserName = payload.Email.Split('@')[0] + Guid.NewGuid().ToString()[..4],
+						EmailConfirmed = true,
+						DisplayName = payload.Name ?? payload.GivenName ?? payload.Email.Split('@')[0],
+					};
+
+					var createResult = await _userManager.CreateAsync(user);
+					if (!createResult.Succeeded)
+					{
+						return Error.Failure("UserCreationFailed", "Failed to create user account.");
+					}
+
+					await _userManager.AddLoginAsync(user, new UserLoginInfo("Google", payload.Subject, "Google"));
+				}
+				else if (await _userManager.IsLockedOutAsync(user))
+				{
+					return Error.Unauthorized("AccountLocked", "Your account is temporarily locked.");
+				}
+
+				// 3. Generate internal tokens
+				return await ProcessLoginAsync(user);
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Exception during Google OAuth login.");
+				return Error.Failure("GoogleLoginError", "An error occurred during Google login.");
+			}
+		}
+		*/
+
+		public async Task<Result<UserDTO>> LoginWithFirebaseAsync(FirebaseLoginDTO firebaseLoginDTO)
+		{
+			_logger.LogInformation("Processing Firebase Admin SDK login request.");
+
+			try
+			{
+				// 1. Check if Firebase is initialized
+				if (FirebaseAuth.DefaultInstance == null)
+				{
+					_logger.LogError("Firebase Auth is not initialized.");
+					return Error.Failure("FirebaseNotInitialized", "Firebase is not configured on the server.");
+				}
+
+				// 2. Verify Firebase ID Token
+				FirebaseToken decodedToken = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(firebaseLoginDTO.IdToken);
 
 				var firebaseUid = decodedToken.Uid;
 				decodedToken.Claims.TryGetValue("email", out var emailObj);
@@ -579,17 +647,15 @@ namespace S2S.Services
 
 				if (string.IsNullOrEmpty(email))
 				{
-					_logger.LogWarning("Firebase token missing email claim. UID: {Uid}", firebaseUid);
-					return Error.Unauthorized("InvalidFirebaseToken", "Firebase token does not contain an email address.");
+					return Error.Unauthorized("InvalidFirebaseToken", "Firebase token missing email.");
 				}
 
-				// 2. Find user by email
+				// 3. Find or create user
 				var user = await _userManager.FindByEmailAsync(email);
 
 				if (user == null)
 				{
-					// 3a. New user — create account
-					_logger.LogInformation("New user registering via Firebase Google. Email: {Email}", email);
+					_logger.LogInformation("New user registering via Firebase Admin. Email: {Email}", email);
 
 					user = new ApplicationUser
 					{
@@ -602,39 +668,18 @@ namespace S2S.Services
 					var createResult = await _userManager.CreateAsync(user);
 					if (!createResult.Succeeded)
 					{
-						var errors = string.Join(", ", createResult.Errors.Select(e => e.Code));
-						_logger.LogError("Failed to create user from Firebase Google login. Errors: {Errors}", errors);
 						return Error.Failure("UserCreationFailed", "Failed to create user account.");
 					}
 
-					// Link Firebase UID as external login
 					await _userManager.AddLoginAsync(user, new UserLoginInfo("Firebase", firebaseUid, "Google via Firebase"));
 				}
-				else
+				else if (await _userManager.IsLockedOutAsync(user))
 				{
-					// 3b. Existing user — check lockout
-					if (await _userManager.IsLockedOutAsync(user))
-					{
-						_logger.LogWarning("Firebase Google login blocked — account locked. UserId: {UserId}", user.Id);
-						return Error.Unauthorized("AccountLocked", "Your account is temporarily locked due to multiple failed attempts. Please try again later.");
-					}
+					return Error.Unauthorized("AccountLocked", "Your account is temporarily locked.");
 				}
 
-				// 4. Generate S2S JWT + Refresh Token
-				var token = await CreateAccessTokenAsync(user);
-
-				user.RefreshToken = GenerateRefreshToken();
-				if (!int.TryParse(_configuration["JWTOptions:RefreshTokenExpiryInDays"], out int expiryDays))
-					expiryDays = 7;
-
-				user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(expiryDays);
-				user.LastLoginAt = DateTime.UtcNow;
-
-				await _userManager.UpdateAsync(user);
-
-				_logger.LogInformation("Firebase Google login successful. UserId: {UserId}", user.Id);
-
-				return await MapToUserDTOAsync(user);
+				// 4. Generate internal tokens
+				return await ProcessLoginAsync(user);
 			}
 			catch (FirebaseAuthException ex)
 			{
@@ -643,9 +688,27 @@ namespace S2S.Services
 			}
 			catch (Exception ex)
 			{
-				_logger.LogError(ex, "Exception occurred during Firebase Google login.");
-				return Error.Failure("GoogleLoginError", "An unexpected error occurred during Google login.");
+				_logger.LogError(ex, "Exception during Firebase login.");
+				return Error.Failure("FirebaseLoginError", "An unexpected error occurred during Firebase login.");
 			}
+		}
+
+		private async Task<Result<UserDTO>> ProcessLoginAsync(ApplicationUser user)
+		{
+			var token = await CreateAccessTokenAsync(user);
+
+			user.RefreshToken = GenerateRefreshToken();
+			if (!int.TryParse(_configuration["JWTOptions:RefreshTokenExpiryInDays"], out int expiryDays))
+				expiryDays = 7;
+
+			user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(expiryDays);
+			user.LastLoginAt = DateTime.UtcNow;
+
+			await _userManager.UpdateAsync(user);
+
+			_logger.LogInformation("Login successful. UserId: {UserId}", user.Id);
+
+			return await MapToUserDTOAsync(user);
 		}
 
 		public async Task<Result> UpdateFcmTokenAsync(string email, string fcmToken)

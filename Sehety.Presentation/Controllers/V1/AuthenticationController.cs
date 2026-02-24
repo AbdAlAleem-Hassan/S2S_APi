@@ -37,23 +37,33 @@ namespace S2S.Presentation.Controllers.V1
 			return HandleRequest(result);
 		}
 
-		[HttpPost("google-login")]
-		public async Task<ActionResult<UserDTO>> GoogleLogin([FromBody] GoogleLoginDTO googleLoginDTO)
+		/*
+		[HttpPost("google-login-manual")]
+		public async Task<ActionResult<UserDTO>> GoogleLoginManual([FromBody] GoogleLoginDTO googleLoginDTO)
 		{
-			// لا حاجة لـ ModelState.IsValid هنا لأن [ApiController] في ApiBaseController تقوم بذلك تلقائياً
-
 			var result = await _authenticationService.LoginWithGoogleAsync(googleLoginDTO);
 
 			if (result.IsSuccess && result.Value.RefreshToken != null)
 			{
-				// For web clients: set cookie
 				SetRefreshTokenCookie(result.Value.RefreshToken);
-
-				// For mobile clients: include refresh token in response body
 				return Ok(result.Value);
 			}
 
-			// استخدام دالة الـ Base Controller الموحدة للتعامل مع الأخطاء
+			return HandleRequest(result);
+		}
+		*/
+
+		[HttpPost("google-login")]
+		public async Task<ActionResult<UserDTO>> GoogleLogin([FromBody] FirebaseLoginDTO firebaseLoginDTO)
+		{
+			var result = await _authenticationService.LoginWithFirebaseAsync(firebaseLoginDTO);
+
+			if (result.IsSuccess && result.Value.RefreshToken != null)
+			{
+				SetRefreshTokenCookie(result.Value.RefreshToken);
+				return Ok(result.Value);
+			}
+
 			return HandleRequest(result);
 		}
 
