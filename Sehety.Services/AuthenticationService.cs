@@ -1,4 +1,5 @@
 ﻿using AutoMapper;
+using FirebaseAdmin.Auth;
 using Google.Apis.Auth;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -562,58 +563,64 @@ namespace S2S.Services
 
 		public async Task<Result<UserDTO>> LoginWithGoogleAsync(GoogleLoginDTO googleLoginDTO)
 		{
-			_logger.LogInformation("Processing Google login request.");
+			_logger.LogInformation("Processing Firebase Google login request.");
 
 			try
 			{
-				// 1. التحقق من التوكن القادم من جوجل
-				var settings = new GoogleJsonWebSignature.ValidationSettings()
-				{
-					Audience = new List<string> { _configuration["Authentication:Google:ClientId"]! }
-				};
+				// 1. Verify Firebase ID Token (works for Flutter & web Firebase Auth)
+				FirebaseToken decodedToken = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(googleLoginDTO.IdToken);
 
-				var payload = await GoogleJsonWebSignature.ValidateAsync(googleLoginDTO.IdToken, settings);
+				var firebaseUid = decodedToken.Uid;
+				decodedToken.Claims.TryGetValue("email", out var emailObj);
+				decodedToken.Claims.TryGetValue("name", out var nameObj);
 
-				if (payload == null)
+				var email = emailObj?.ToString();
+				var displayName = nameObj?.ToString();
+
+				if (string.IsNullOrEmpty(email))
 				{
-					_logger.LogWarning("Google login failed: Invalid token payload.");
-					return Error.Unauthorized("InvalidGoogleToken", "Invalid Google Token.");
+					_logger.LogWarning("Firebase token missing email claim. UID: {Uid}", firebaseUid);
+					return Error.Unauthorized("InvalidFirebaseToken", "Firebase token does not contain an email address.");
 				}
 
-				// 2. البحث عن المستخدم في قاعدة البيانات
-				var user = await _userManager.FindByEmailAsync(payload.Email);
+				// 2. Find user by email
+				var user = await _userManager.FindByEmailAsync(email);
 
-				// 3. إذا كان المستخدم جديداً، نقوم بإنشائه
 				if (user == null)
 				{
-					_logger.LogInformation("New user registering via Google. Email: {Email}", payload.Email);
+					// 3a. New user — create account
+					_logger.LogInformation("New user registering via Firebase Google. Email: {Email}", email);
 
 					user = new ApplicationUser
 					{
-						Email = payload.Email,
-						UserName = payload.Email.Split('@')[0] + Guid.NewGuid().ToString().Substring(0, 4),
+						Email = email,
+						UserName = email.Split('@')[0] + Guid.NewGuid().ToString()[..4],
 						EmailConfirmed = true,
-
-						// --- السطر ده اللي هيحل المشكلة ---
-						DisplayName = payload.Name ?? payload.GivenName ?? payload.Email.Split('@')[0],
-
-						// لو عندك حقول تانية (Required) في الداتابيس زي DateOfBirth مثلاً، لازم تديها قيمة افتراضية هنا
-						// DateOfBirth = DateOnly.FromDateTime(DateTime.UtcNow) // كمثال لو كان مطلوب
+						DisplayName = displayName ?? email.Split('@')[0],
 					};
 
 					var createResult = await _userManager.CreateAsync(user);
 					if (!createResult.Succeeded)
 					{
 						var errors = string.Join(", ", createResult.Errors.Select(e => e.Code));
-						_logger.LogError("Failed to create user from Google. Errors: {Errors}", errors);
+						_logger.LogError("Failed to create user from Firebase Google login. Errors: {Errors}", errors);
 						return Error.Failure("UserCreationFailed", "Failed to create user account.");
 					}
 
-					// ربط حساب جوجل بالمستخدم
-					await _userManager.AddLoginAsync(user, new UserLoginInfo("Google", payload.Subject, "Google"));
+					// Link Firebase UID as external login
+					await _userManager.AddLoginAsync(user, new UserLoginInfo("Firebase", firebaseUid, "Google via Firebase"));
+				}
+				else
+				{
+					// 3b. Existing user — check lockout
+					if (await _userManager.IsLockedOutAsync(user))
+					{
+						_logger.LogWarning("Firebase Google login blocked — account locked. UserId: {UserId}", user.Id);
+						return Error.Unauthorized("AccountLocked", "Your account is temporarily locked due to multiple failed attempts. Please try again later.");
+					}
 				}
 
-				// 4. توليد الـ JWT الخاص بنظامك (S2S)
+				// 4. Generate S2S JWT + Refresh Token
 				var token = await CreateAccessTokenAsync(user);
 
 				user.RefreshToken = GenerateRefreshToken();
@@ -625,19 +632,18 @@ namespace S2S.Services
 
 				await _userManager.UpdateAsync(user);
 
-				_logger.LogInformation("Google login successful. UserId: {UserId}", user.Id);
+				_logger.LogInformation("Firebase Google login successful. UserId: {UserId}", user.Id);
 
-				// 5. استخدام دالة المابينج الخاصة بك لإرجاع البيانات
 				return await MapToUserDTOAsync(user);
 			}
-			catch (InvalidJwtException ex)
+			catch (FirebaseAuthException ex)
 			{
-				_logger.LogWarning(ex, "Google login failed: Invalid or expired JWT.");
-				return Error.Unauthorized("InvalidGoogleToken", "The provided Google token is invalid or expired.");
+				_logger.LogWarning(ex, "Firebase token verification failed.");
+				return Error.Unauthorized("InvalidFirebaseToken", "The provided Firebase token is invalid or expired.");
 			}
 			catch (Exception ex)
 			{
-				_logger.LogError(ex, "Exception occurred during Google login.");
+				_logger.LogError(ex, "Exception occurred during Firebase Google login.");
 				return Error.Failure("GoogleLoginError", "An unexpected error occurred during Google login.");
 			}
 		}
