@@ -1,5 +1,4 @@
-﻿using System;
-using Microsoft.EntityFrameworkCore.Migrations;
+﻿using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
@@ -41,8 +40,7 @@ namespace S2S.Persistence.IdentityData.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropTable(
-                name: "UserPasswordHistories");
+            migrationBuilder.DropTable(name: "UserPasswordHistories");
         }
     }
 }

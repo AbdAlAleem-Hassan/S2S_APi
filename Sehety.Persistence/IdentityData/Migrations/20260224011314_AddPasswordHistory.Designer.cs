@@ -12,7 +12,7 @@ using S2S.Persistence.IdentityData.DbContexts;
 namespace S2S.Persistence.IdentityData.Migrations
 {
     [DbContext(typeof(S2SIdentityDbContext))]
-    [Migration("20260223235132_AddPasswordHistory")]
+    [Migration("20260224011314_AddPasswordHistory")]
     partial class AddPasswordHistory
     {
         /// <inheritdoc />
