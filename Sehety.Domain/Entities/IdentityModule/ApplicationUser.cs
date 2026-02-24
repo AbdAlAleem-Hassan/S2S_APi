@@ -20,6 +20,7 @@ namespace S2S.Domain.Entities.IdentityModule
         public DateTime? RefreshTokenExpiryTime { get; set; }
 		public string? FcmToken { get; set; } // هيتحفظ فيه التوكن بتاع الموبايل
 		public ICollection<UserOtp> Otps { get; set; } = new List<UserOtp>();
+		public ICollection<UserPasswordHistory> PasswordHistories { get; set; } = new List<UserPasswordHistory>();
 
 	}
 }

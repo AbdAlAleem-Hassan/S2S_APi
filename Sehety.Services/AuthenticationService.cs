@@ -451,6 +451,16 @@ namespace S2S.Services
 				await _context.SaveChangesAsync();
 				await transaction.CommitAsync();
 
+				// Send security notification email 
+				try
+				{
+					await _emailService.SendPasswordChangedEmailAsync(user.Email!, user.DisplayName ?? user.UserName!);
+				}
+				catch (Exception ex)
+				{
+					_logger.LogError(ex, "Failed to send password changed notification email. UserId: {UserId}", user.Id);
+				}
+
 				_logger.LogInformation("Password reset successful. UserId: {UserId}", user.Id);
 				return Result.Ok();
 			}
@@ -525,7 +535,8 @@ namespace S2S.Services
 			{
 				new Claim(JwtRegisteredClaimNames.Email, user.Email!),
 				new Claim(JwtRegisteredClaimNames.Name, user.UserName!),
-				new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+				new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+				new Claim(JwtRegisteredClaimNames.Sub, user.Id)  // User ID for secure operations
 			};
 
 			var roles = await _userManager.GetRolesAsync(user);
@@ -654,6 +665,121 @@ namespace S2S.Services
 
 			_logger.LogInformation("FCM Token updated successfully. UserId: {UserId}", user.Id);
 			return Result.Ok();
+		}
+
+		public async Task<Result> ChangePasswordAsync(string userId, ChangePasswordDTO changePasswordDTO)
+		{
+			_logger.LogInformation("Processing Change Password request. UserId: {UserId}", userId);
+
+			// 1. Find user by Id 
+			var user = await _userManager.FindByIdAsync(userId);
+			if (user == null)
+			{
+				_logger.LogWarning("Change Password failed: User not found. UserId: {UserId}", userId);
+				return Error.NotFound("UserNotFound", "User not found.");
+			}
+
+			// 2. Ensure account is not locked
+			if (await _userManager.IsLockedOutAsync(user))
+			{
+				var remaining = Math.Ceiling((user.LockoutEnd!.Value - DateTimeOffset.UtcNow).TotalMinutes);
+				_logger.LogWarning("Change Password denied: Account locked. UserId: {UserId}", user.Id);
+				return Error.Unauthorized("AccountLocked", $"Account is locked. Try again in {remaining} minutes.");
+			}
+
+			// 3. Verify current password
+			var isCurrentPasswordValid = await _userManager.CheckPasswordAsync(user, changePasswordDTO.CurrentPassword);
+			if (!isCurrentPasswordValid)
+			{
+				await _userManager.AccessFailedAsync(user);
+				_logger.LogWarning("Change Password failed: Wrong current password. UserId: {UserId}", user.Id);
+				return Error.Validation("InvalidCurrentPassword", "Current password is incorrect.");
+			}
+
+			// 4. Check password history (last 5 passwords must not be reused)
+			const int PasswordHistoryLimit = 5;
+			var recentPasswords = await _context.UserPasswordHistories
+				.Where(p => p.UserId == user.Id)
+				.OrderByDescending(p => p.CreatedAt)
+				.Take(PasswordHistoryLimit)
+				.ToListAsync();
+
+			var passwordHasher = new Microsoft.AspNetCore.Identity.PasswordHasher<ApplicationUser>();
+			foreach (var old in recentPasswords)
+			{
+				var verificationResult = passwordHasher.VerifyHashedPassword(user, old.PasswordHash, changePasswordDTO.NewPassword);
+				if (verificationResult != Microsoft.AspNetCore.Identity.PasswordVerificationResult.Failed)
+				{
+					_logger.LogWarning("Change Password denied: New password matches a previously used password. UserId: {UserId}", user.Id);
+					return Error.Validation("PasswordPreviouslyUsed", $"You cannot reuse any of your last {PasswordHistoryLimit} passwords.");
+				}
+			}
+
+			// 5. Perform password change inside a transaction
+			using var transaction = await _context.Database.BeginTransactionAsync();
+			try
+			{
+				// 5a. Change the password via Identity
+				var identityResult = await _userManager.ChangePasswordAsync(user, changePasswordDTO.CurrentPassword, changePasswordDTO.NewPassword);
+				if (!identityResult.Succeeded)
+				{
+					await transaction.RollbackAsync();
+					var errorCodes = string.Join(", ", identityResult.Errors.Select(e => e.Code));
+					_logger.LogError("Change Password failed: Identity errors. UserId: {UserId}, Errors: {Errors}", user.Id, errorCodes);
+					return identityResult.Errors.Select(e => Error.Validation(e.Code, e.Description)).ToList();
+				}
+
+				
+				var newHashForHistory = passwordHasher.HashPassword(user, changePasswordDTO.NewPassword);
+				_context.UserPasswordHistories.Add(new UserPasswordHistory
+				{
+					UserId = user.Id,
+					PasswordHash = newHashForHistory,
+					CreatedAt = DateTime.UtcNow
+				});
+
+				// 5c. Trim history to keep only the last PasswordHistoryLimit records
+				var allHistory = await _context.UserPasswordHistories
+					.Where(p => p.UserId == user.Id)
+					.OrderByDescending(p => p.CreatedAt)
+					.ToListAsync();
+
+				var toDelete = allHistory.Skip(PasswordHistoryLimit).ToList();
+				if (toDelete.Count > 0)
+					_context.UserPasswordHistories.RemoveRange(toDelete);
+
+				// 5d. Invalidate ALL active sessions:
+				//     - Clear refresh token → prevents token refresh
+				//     - Update security stamp → invalidates existing JWTs (if SecurityStamp validation is enabled)
+				user.RefreshToken = null;
+				user.RefreshTokenExpiryTime = null;
+				await _userManager.UpdateSecurityStampAsync(user);
+
+				// 5e. Reset failed login counter
+				await _userManager.ResetAccessFailedCountAsync(user);
+
+				await _context.SaveChangesAsync();
+				await transaction.CommitAsync();
+
+				// Send security notification email 
+				try
+				{
+					await _emailService.SendPasswordChangedEmailAsync(user.Email!, user.DisplayName ?? user.UserName!);
+				}
+				catch (Exception ex)
+				{
+					_logger.LogError(ex, "Failed to send password changed notification email. UserId: {UserId}", user.Id);
+				}
+
+				_logger.LogInformation("Password changed successfully. All sessions invalidated. UserId: {UserId}", user.Id);
+				return Result.Ok();
+			}
+			catch (Exception ex)
+			{
+				await transaction.RollbackAsync();
+				_logger.LogError(ex, "Exception during Change Password transaction. UserId: {UserId}", user.Id);
+				throw;
+			}
 		}
 	}
 }

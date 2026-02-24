@@ -143,6 +143,29 @@ namespace S2S.Presentation.Controllers.V1
             return HandleRequest(result);
         }
 
+        [Authorize]
+        [EnableRateLimiting("change-password-limit")]
+        [HttpPost("ChangePassword")]
+        public async Task<ActionResult> ChangePassword([FromBody] ChangePasswordDTO changePasswordDTO)
+        {
+            // User Id comes from the JWT claim (cannot be tampered with)
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+            if (string.IsNullOrEmpty(userId))
+                return Unauthorized(new { message = "Invalid token or user not authenticated." });
+
+            var result = await _authenticationService.ChangePasswordAsync(userId, changePasswordDTO);
+
+            if (result.IsSuccess)
+            {
+                // Invalidate the refresh token cookie for web clients
+                Response.Cookies.Delete("refreshToken");
+                return Ok(new { success = true, message = "Password changed successfully. Please log in again." });
+            }
+
+            return HandleRequest(result);
+        }
+
         private void SetRefreshTokenCookie(string refreshToken)
         {
             var cookieOptions = new CookieOptions

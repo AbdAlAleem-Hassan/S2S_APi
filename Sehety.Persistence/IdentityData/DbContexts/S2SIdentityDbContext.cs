@@ -17,6 +17,7 @@ namespace S2S.Persistence.IdentityData.DbContexts
 		}
 
 		public DbSet<UserOtp> UserOtps { get; set; }
+		public DbSet<UserPasswordHistory> UserPasswordHistories { get; set; }
 
 		protected override void OnModelCreating(ModelBuilder builder)
 		{
