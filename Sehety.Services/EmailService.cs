@@ -159,5 +159,38 @@ namespace S2S.Services
             string body = GetEmailTemplate(content);
             await SendEmailAsync(to, subject, body);
         }
+        public async Task SendPasswordChangedEmailAsync(string to, string displayName)
+        {
+            string subject = "Your Password Has Been Changed - S2S";
+            var changedAt = DateTime.UtcNow.ToString("MMMM dd, yyyy 'at' HH:mm 'UTC'");
+
+            string content = $@"
+                <h2 style='margin: 0 0 20px 0; color: {SecondaryColor}; font-size: 24px; text-align: center;'>
+                    Password Changed Successfully 🔒
+                </h2>
+                <p style='margin: 0 0 25px 0; color: {TextColor}; font-size: 16px; line-height: 1.6; text-align: center;'>
+                    Hi <strong>{displayName}</strong>, your S2S account password was recently changed.
+                </p>
+
+                <div style='background: linear-gradient(135deg, {SecondaryColor} 0%, #2D4A6F 100%); padding: 20px; border-radius: 12px; text-align: center; margin: 0 0 25px 0;'>
+                    <p style='margin: 0; color: rgba(255,255,255,0.8); font-size: 13px;'>Changed on</p>
+                    <p style='margin: 6px 0 0 0; color: #ffffff; font-size: 16px; font-weight: bold;'>⏱ {changedAt}</p>
+                </div>
+
+                <div style='background-color: #FFF3F0; border-left: 4px solid {PrimaryColor}; padding: 16px 20px; border-radius: 8px; margin: 0 0 25px 0;'>
+                    <p style='margin: 0 0 8px 0; color: {PrimaryColor}; font-weight: bold; font-size: 14px;'>⚠️ Didn't change your password?</p>
+                    <p style='margin: 0; color: {TextColor}; font-size: 14px; line-height: 1.6;'>
+                        If you did not make this change, your account may be compromised. 
+                        Please reset your password immediately and contact our support team.
+                    </p>
+                </div>
+
+                <p style='margin: 0; color: {MutedText}; font-size: 13px; text-align: center;'>
+                    All active sessions have been signed out for your security.
+                </p>";
+
+            string body = GetEmailTemplate(content);
+            await SendEmailAsync(to, subject, body);
+        }
     }
 }

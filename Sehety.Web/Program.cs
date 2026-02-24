@@ -72,6 +72,17 @@ builder.Services.AddRateLimiter(options =>
         opt.QueueLimit = 0;
         opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
     });
+
+    // Dedicated stricter rate limit for ChangePassword: 3 attempts per 10 minutes per IP
+    options.AddPolicy("change-password-limit", context =>
+    RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: context.User.Identity?.Name ?? context.Connection.RemoteIpAddress?.ToString(),
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 5,
+            Window = TimeSpan.FromMinutes(5),
+            QueueLimit = 0
+        }));
 });
 
 // Resolve Connection String dynamically for Cloud/Docker
@@ -165,12 +176,10 @@ builder.Services.AddVersionedApiExplorer(setup =>
 });
 
 #region Fire Base Admin SDK Initialization
-// 1. „Õ«Ê·… ﬁ—«¡… «·„› «Õ ﬂ‰’ „‰ «·‹ Environment Variables („›Ìœ… ·‹ Heroku)
 var firebaseJson = builder.Configuration["FIREBASE_CONFIG"];
 
 if (!string.IsNullOrEmpty(firebaseJson))
 {
-	// ·Ê ≈Õ‰« ⁄·Ï Heroku Ê·ﬁÌ‰« «·‹ JSON° Â‰ﬁ—√Â „»«‘—…
 	FirebaseApp.Create(new AppOptions()
 	{
 		Credential = GoogleCredential.FromJson(firebaseJson)
@@ -178,7 +187,6 @@ if (!string.IsNullOrEmpty(firebaseJson))
 }
 else
 {
-	// 2. ·Ê ≈Õ‰« Local° Â‰ﬁ—√ „”«— «·„·› „‰ «·‹ appsettings
 	var firebaseCredPath = builder.Configuration["Firebase:CredentialsPath"];
 	var fullPath = Path.Combine(Directory.GetCurrentDirectory(), firebaseCredPath!);
 
@@ -191,7 +199,6 @@ else
 	}
 	else
 	{
-		//  ”ÃÌ·  Õ–Ì— ·Ê «·„·› „‘ „ÊÃÊœ ⁄‘«‰ „ ‰”«‘  ÕÿÂ
 		Console.WriteLine("Firebase warning: Credentials file not found!");
 	}
 }

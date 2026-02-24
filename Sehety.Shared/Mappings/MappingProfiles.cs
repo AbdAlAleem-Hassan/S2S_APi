@@ -53,9 +53,7 @@ namespace S2S.Shared.Mappings
                 .ForCtorParam("RefreshToken", opt => opt.MapFrom(src => src.RefreshToken));
         }
 
-        /// <summary>
-        /// Sanitizes user input to prevent XSS attacks by removing potentially dangerous characters
-        /// </summary>
+        
         private static string SanitizeInput(string input)
         {
             if (string.IsNullOrWhiteSpace(input))
