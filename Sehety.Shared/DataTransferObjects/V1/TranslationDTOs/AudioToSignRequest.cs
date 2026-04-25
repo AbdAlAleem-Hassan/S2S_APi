@@ -11,5 +11,7 @@ namespace S2S.Shared.DataTransferObjects.V1.TranslationDTOs
 		public string Avatar { get; set; } = "default";
 		[FromForm(Name = "speed")]
 		public string Speed { get; set; } = "1.0";
+		[FromForm(Name = "output_format")]
+		public string OutputFormat { get; set; } = "pose"; 
 	}
 }

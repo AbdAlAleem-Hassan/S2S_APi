@@ -89,7 +89,7 @@ namespace S2S.Services
 			}
 		}
 
-		public async Task<Result<string>> SendTextToSignAsync(string text, string avatar, string speed)
+		public async Task<Result<string>> SendTextToSignAsync(string text, string avatar, string speed, string outputFormat)
 		{
 			_logger.LogInformation("Starting TextToSign request. TextLength: {Length}, Avatar: {Avatar}, Speed: {Speed}",
 				text?.Length ?? 0, avatar, speed);
@@ -106,6 +106,9 @@ namespace S2S.Services
 				content.Add(new StringContent(text), "text");
 				content.Add(new StringContent(avatar ?? "default"), "avatar");
 				content.Add(new StringContent(speed ?? "1.0"), "speed");
+
+
+				content.Add(new StringContent(string.IsNullOrEmpty(outputFormat) ? "pose" : outputFormat), "output_format");
 
 				var response = await _client.PostAsync("translate/to-sign", content);
 
@@ -131,7 +134,7 @@ namespace S2S.Services
 			}
 		}
 
-		public async Task<Result<string>> SendAudioToSignAsync(IFormFile audio, string avatar, string speed)
+		public async Task<Result<string>> SendAudioToSignAsync(IFormFile audio, string avatar, string speed, string outputFormat)
 		{
 			_logger.LogInformation("Starting AudioToSign request. File: {FileName}, Size: {Size}, Avatar: {Avatar}, Speed: {Speed}",
 				audio?.FileName, audio?.Length, avatar, speed);
@@ -152,6 +155,8 @@ namespace S2S.Services
 
 				content.Add(new StringContent(avatar ?? "default"), "avatar");
 				content.Add(new StringContent(speed ?? "1.0"), "speed");
+
+				content.Add(new StringContent(string.IsNullOrEmpty(outputFormat) ? "pose" : outputFormat), "output_format");
 
 				var response = await _client.PostAsync("translate/to-sign", content);
 

@@ -21,6 +21,7 @@ using S2S.Shared.Validators;
 using Serilog;
 using System.Data.Common;
 using System.Text;
+using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -38,7 +39,11 @@ builder.Host.UseSerilog((context, loggerConfiguration) =>
     loggerConfiguration.ReadFrom.Configuration(builder.Configuration));
 #endregion
 
-builder.Services.AddControllers();
+builder.Services.AddControllers().AddJsonOptions(options =>
+{
+	// السطر ده هيخلي أي حقل قيمته Null ميظهرش في الـ JSON نهائياً
+	options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+});
 
 // Add FluentValidation
 builder.Services.AddFluentValidationAutoValidation();
