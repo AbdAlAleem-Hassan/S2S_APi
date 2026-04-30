@@ -99,7 +99,8 @@ builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddHttpClient<IAiTranslationService, AiTranslationService>();
 
 // AutoMapper Configuration
-builder.Services.AddAutoMapper(typeof(MappingProfiles));
+//builder.Services.AddAutoMapper(typeof(MappingProfiles).Assembly);
+builder.Services.AddAutoMapper(cfg => { }, typeof(MappingProfiles).Assembly);
 
 builder.Services.AddIdentityCore<ApplicationUser>(options =>
 {

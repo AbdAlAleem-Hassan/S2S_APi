@@ -24,6 +24,9 @@ namespace S2S.Persistence.Configrations
 
             builder.OwnsOne(u => u.Address, address =>
             {
+                address.ToTable("UserAddresses");
+                address.WithOwner().HasForeignKey("UserId");
+                address.HasKey("UserId");
                 address.Property(a => a.City).HasColumnName("City").HasMaxLength(100);
                 address.Property(a => a.Street).HasColumnName("Street").HasMaxLength(100);
                 address.Property(a => a.Country).HasColumnName("Country").HasMaxLength(100);
