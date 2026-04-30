@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using S2S.ServicesAbstraction;
@@ -11,12 +12,20 @@ namespace S2S.Services
 	{
 		private readonly HttpClient _client;
 		private readonly ILogger<AiTranslationService> _logger;
+		private readonly IWebHostEnvironment _env;
 
-		public AiTranslationService(HttpClient client, IConfiguration config, ILogger<AiTranslationService> logger)
+		public AiTranslationService(HttpClient client, IConfiguration config, ILogger<AiTranslationService> logger, IWebHostEnvironment env)
 		{
 			_client = client;
 			_logger = logger;
-			_client.BaseAddress = new Uri(config["AISettings:BaseUrl"]);
+			_env = env;
+			var baseUrl = config["AISettings:BaseUrl"];
+			if (string.IsNullOrWhiteSpace(baseUrl))
+			{
+				_logger.LogError("AISettings:BaseUrl is missing or empty.");
+				throw new InvalidOperationException("AISettings:BaseUrl is required.");
+			}
+			_client.BaseAddress = new Uri(baseUrl, UriKind.Absolute);
 
 			var hfToken = config["AISettings:HFToken"];
 			if (!string.IsNullOrEmpty(hfToken))
@@ -86,7 +95,7 @@ namespace S2S.Services
 			}
 		}
 
-		public async Task<Result<string>> SendTextToSignAsync(string text, string avatar, string speed)
+		public async Task<Result<string>> SendTextToSignAsync(string text, string avatar, string speed, string outputFormat)
 		{
 			_logger.LogInformation("Starting TextToSign request. TextLength: {Length}, Avatar: {Avatar}, Speed: {Speed}",
 				text?.Length ?? 0, avatar, speed);
@@ -103,6 +112,9 @@ namespace S2S.Services
 				content.Add(new StringContent(text), "text");
 				content.Add(new StringContent(avatar ?? "default"), "avatar");
 				content.Add(new StringContent(speed ?? "1.0"), "speed");
+
+
+				content.Add(new StringContent(string.IsNullOrEmpty(outputFormat) ? "pose" : outputFormat), "output_format");
 
 				var response = await _client.PostAsync("translate/to-sign", content);
 
@@ -128,7 +140,7 @@ namespace S2S.Services
 			}
 		}
 
-		public async Task<Result<string>> SendAudioToSignAsync(IFormFile audio, string avatar, string speed)
+		public async Task<Result<string>> SendAudioToSignAsync(IFormFile audio, string avatar, string speed, string outputFormat)
 		{
 			_logger.LogInformation("Starting AudioToSign request. File: {FileName}, Size: {Size}, Avatar: {Avatar}, Speed: {Speed}",
 				audio?.FileName, audio?.Length, avatar, speed);
@@ -149,6 +161,8 @@ namespace S2S.Services
 
 				content.Add(new StringContent(avatar ?? "default"), "avatar");
 				content.Add(new StringContent(speed ?? "1.0"), "speed");
+
+				content.Add(new StringContent(string.IsNullOrEmpty(outputFormat) ? "pose" : outputFormat), "output_format");
 
 				var response = await _client.PostAsync("translate/to-sign", content);
 
@@ -173,6 +187,34 @@ namespace S2S.Services
 			{
 				_logger.LogError(ex, "Exception occurred during AudioToSign for file: {FileName}", audio.FileName);
 				return Error.Failure("AiServer.Connection", $"Failed to connect to AI Server: {ex.Message}");
+			}
+		}
+
+		public async Task<Result<string>> DownloadAndSaveMediaAsync(string fileName, string type)
+		{
+			try
+			{
+				var requestUri = $"media/{type}/{fileName}";
+				var response = await _client.GetAsync(requestUri);
+
+				if (!response.IsSuccessStatusCode)
+					return Error.Failure("MediaDownloadFailed", "Failed to download media from AI Server.");
+
+				var webRootPath = _env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+				var uploadsFolder = Path.Combine(webRootPath, "media", type);
+
+				if (!Directory.Exists(uploadsFolder))
+					Directory.CreateDirectory(uploadsFolder);
+
+				var filePath = Path.Combine(uploadsFolder, fileName);
+				var fileBytes = await response.Content.ReadAsByteArrayAsync();
+				await File.WriteAllBytesAsync(filePath, fileBytes);
+
+				return Result<string>.Ok(fileName);
+			}
+			catch (Exception ex)
+			{
+				return Error.Failure("MediaSaveError", ex.Message);
 			}
 		}
 	}

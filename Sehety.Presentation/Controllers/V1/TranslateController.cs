@@ -1,7 +1,10 @@
-﻿using Microsoft.AspNetCore.Authorization;
+﻿using Asp.Versioning;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.StaticFiles;
 using S2S.ServicesAbstraction;
 using S2S.Shared.CommonResult;
 using S2S.Shared.DataTransferObjects.V1.TranslationDTOs;
@@ -9,20 +12,42 @@ using System.Text.Json;
 
 namespace S2S.Presentation.Controllers.V1
 {
-	[Authorize]
+	[Authorize]	
 	[ApiVersion("1.0")]
 	[Route("api/v{version:apiVersion}/[controller]")]
-	public class TranslateController(IAiTranslationService _service) : ApiBaseController
+	public class TranslateController(IAiTranslationService _service, IWebHostEnvironment _env) : ApiBaseController
 	{
-		private string RewriteUrl(string aiUrl, string type)
+		private string? RewriteUrl(string fileName, string type)
 		{
-			if (string.IsNullOrEmpty(aiUrl)) return null;
+			if (string.IsNullOrEmpty(fileName)) return null;
 
-			var fileName = Path.GetFileName(aiUrl);
 			var request = HttpContext.Request;
 			var baseUrl = $"{request.Scheme}://{request.Host}{request.PathBase}";
+			return $"{baseUrl}/api/v1/media/{type}/{fileName}";
+		}
 
-			return $"{baseUrl}/api/media/{type}/{fileName}";
+		// 💡 الدالة السحرية دي بتاخد اللينك من الـ AI، تعرف نوعه، تحمله، وترجعلك اللينك الجديد!
+		private async Task<string?> ProcessAndDownloadMediaAsync(string? originalUrl)
+		{
+			if (string.IsNullOrEmpty(originalUrl)) return null;
+
+			// استخراج اسم الملف (مثلاً: 90bb8a83bdc94f318ebae77f44512871.pose)
+			string fileName = Path.GetFileName(originalUrl);
+			string type = "video"; // الافتراضي
+
+			// تحديد نوع الفولدر بناءً على الامتداد
+			if (fileName.EndsWith(".pose")) type = "pose";
+			else if (fileName.EndsWith(".sigml")) type = "sigml";
+			else if (fileName.EndsWith(".mp3") || fileName.EndsWith(".wav")) type = "audio";
+
+			// تحميل وحفظ الملف من الـ AI Server إلى wwwroot
+			var downloadResult = await _service.DownloadAndSaveMediaAsync(fileName, type);
+
+			if (downloadResult.IsSuccess)
+			{
+				return RewriteUrl(fileName, type);
+			}
+			return null;
 		}
 
 		[HttpPost("sign-to-text")]
@@ -37,23 +62,31 @@ namespace S2S.Presentation.Controllers.V1
 		{
 			var serviceResult = await _service.SendSignToTextAsync(request.VideoFile, request.Language, request.IncludeAudio);
 
-			if (!serviceResult.IsSuccess)
-			{
-				return HandleRequest(Result<SignToTextResponseDTO>.Fail(serviceResult.Errors.ToList()));
-			}
+			if (!serviceResult.IsSuccess) return HandleRequest(Result<SignToTextResponseDTO>.Fail(serviceResult.Errors.ToList()));
 
 			try
 			{
-				var jsonString = serviceResult.Value;
-				var resultDto = JsonSerializer.Deserialize<SignToTextResponseDTO>(jsonString);
-
-				if (resultDto?.translation != null && resultDto.translation.ContainsKey("audio_url"))
+				var resultDto = JsonSerializer.Deserialize<SignToTextResponseDTO>(serviceResult.Value);
+				if (resultDto == null)
 				{
-					var audioJsonElement = (JsonElement)resultDto.translation["audio_url"];
-					if (audioJsonElement.ValueKind == JsonValueKind.String)
+					return HandleRequest(Result<SignToTextResponseDTO>.Fail(
+						Error.Failure("Translation.ParseError", "Invalid response from AI server.")));
+				}
+
+				if (resultDto.translation != null
+					&& resultDto.translation.TryGetValue("audio_url", out var audioValue))
+				{
+					string? originalUrl = audioValue switch
 					{
-						string originalUrl = audioJsonElement.GetString();
-						resultDto.translation["audio_url"] = RewriteUrl(originalUrl, "audio");
+						JsonElement { ValueKind: JsonValueKind.String } element => element.GetString(),
+						string value => value,
+						_ => null
+					};
+
+					if (!string.IsNullOrWhiteSpace(originalUrl))
+					{
+						// استخدام الدالة الجديدة لتحميل الصوت
+						resultDto.translation["audio_url"] = await ProcessAndDownloadMediaAsync(originalUrl);
 					}
 				}
 
@@ -75,28 +108,37 @@ namespace S2S.Presentation.Controllers.V1
 		[EndpointDescription("Process The Text Input Using AI Model And Convert Text To Avatar")]
 		public async Task<ActionResult<ToSignResponseDTO>> TextToSign([FromForm] TextToSignRequest request)
 		{
-			var serviceResult = await _service.SendTextToSignAsync(request.Text, request.Avatar, request.Speed);
+			var serviceResult = await _service.SendTextToSignAsync(request.Text, request.Avatar, request.Speed, request.OutputFormat);
 
-			if (!serviceResult.IsSuccess)
-			{
-				return HandleRequest(Result<ToSignResponseDTO>.Fail(serviceResult.Errors.ToList()));
-			}
+			if (!serviceResult.IsSuccess) return HandleRequest(Result<ToSignResponseDTO>.Fail(serviceResult.Errors.ToList()));
 
 			try
 			{
-				var jsonString = serviceResult.Value;
-				var resultDto = JsonSerializer.Deserialize<ToSignResponseDTO>(jsonString);
-
-				if (resultDto?.translation?.video_url != null)
+				var resultDto = JsonSerializer.Deserialize<ToSignResponseDTO>(serviceResult.Value);
+				if (resultDto == null)
 				{
-					resultDto.translation.video_url = RewriteUrl(resultDto.translation.video_url, "video");
+					return HandleRequest(Result<ToSignResponseDTO>.Fail(
+						Error.Failure("Translation.ParseError", "Invalid response from AI server.")));
+				}
+
+				if (resultDto.translation != null)
+				{
+					// معالجة الفيديو لو موجود
+					if (!string.IsNullOrEmpty(resultDto.translation.video_url))
+						resultDto.translation.video_url = await ProcessAndDownloadMediaAsync(resultDto.translation.video_url);
+
+					// معالجة الـ Pose لو موجود
+					if (!string.IsNullOrEmpty(resultDto.translation.pose_url))
+						resultDto.translation.pose_url = await ProcessAndDownloadMediaAsync(resultDto.translation.pose_url);
+
+					// ملحوظة: الـ sigml_content بيرجع نص XML جاهز فمش محتاج تحميل، هيرجع للموبايل زي ما هو
 				}
 
 				return HandleRequest(Result<ToSignResponseDTO>.Ok(resultDto));
 			}
 			catch (Exception ex)
 			{
-				return StatusCode(500, new { error = ex.Message });
+				return StatusCode(500, new { error = "خطأ في تحويل البيانات", details = ex.Message });
 			}
 		}
 
@@ -110,21 +152,35 @@ namespace S2S.Presentation.Controllers.V1
 		[EndpointDescription("Process The Audio Input Using AI Model And Convert Audio To Avatar")]
 		public async Task<ActionResult<ToSignResponseDTO>> AudioToSign([FromForm] AudioToSignRequest request)
 		{
-			var serviceResult = await _service.SendAudioToSignAsync(request.AudioFile, request.Avatar, request.Speed);
+			// 👈 باصينا الـ OutputFormat هنا
+			var serviceResult = await _service.SendAudioToSignAsync(request.AudioFile, request.Avatar, request.Speed, request.OutputFormat);
 
-			if (!serviceResult.IsSuccess)
-			{
-				return HandleRequest(Result<ToSignResponseDTO>.Fail(serviceResult.Errors.ToList()));
-			}
+			if (!serviceResult.IsSuccess) return HandleRequest(Result<ToSignResponseDTO>.Fail(serviceResult.Errors.ToList()));
 
 			try
 			{
-				var jsonString = serviceResult.Value;
-				var resultDto = JsonSerializer.Deserialize<ToSignResponseDTO>(jsonString);
-
-				if (resultDto?.translation?.video_url != null)
+				var resultDto = JsonSerializer.Deserialize<ToSignResponseDTO>(serviceResult.Value);
+				if (resultDto == null)
 				{
-					resultDto.translation.video_url = RewriteUrl(resultDto.translation.video_url, "video");
+					return HandleRequest(Result<ToSignResponseDTO>.Fail(
+						Error.Failure("Translation.ParseError", "Invalid response from AI server.")));
+				}
+
+				if (resultDto.translation != null)
+				{
+					// 1. لو راجع فيديو عادي
+					if (!string.IsNullOrEmpty(resultDto.translation.video_url))
+					{
+						resultDto.translation.video_url = await ProcessAndDownloadMediaAsync(resultDto.translation.video_url);
+					}
+
+					// 2. لو راجع Pose
+					if (!string.IsNullOrEmpty(resultDto.translation.pose_url))
+					{
+						resultDto.translation.pose_url = await ProcessAndDownloadMediaAsync(resultDto.translation.pose_url);
+					}
+
+					// الـ Sigml بيعدي زي ما هو
 				}
 
 				return HandleRequest(Result<ToSignResponseDTO>.Ok(resultDto));
@@ -133,6 +189,32 @@ namespace S2S.Presentation.Controllers.V1
 			{
 				return StatusCode(500, new { error = ex.Message });
 			}
+		}
+
+		[HttpGet("/api/v{version:apiVersion}/media/{type}/{fileName}")]
+		[AllowAnonymous]
+		public IActionResult GetMedia(string type, string fileName)
+		{
+			var webRootPath = _env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+			var filePath = Path.Combine(webRootPath, "media", type, fileName);
+
+			if (!System.IO.File.Exists(filePath))
+			{
+				return NotFound(new { error = "File not found." });
+			}
+
+			var provider = new FileExtensionContentTypeProvider();
+			provider.Mappings[".pose"] = "application/octet-stream";
+			provider.Mappings[".sigml"] = "application/xml";
+
+			if (!provider.TryGetContentType(filePath, out var contentType))
+			{
+				contentType = "application/octet-stream";
+			}
+
+			// 👈 التعديل هنا: ضفنا fileName كباراميتر تالت
+			// ده بيجبر السيرفر يبعت Header بيقول للموبايل: "نزل الملف ده باسمه الأصلي"
+			return PhysicalFile(filePath, contentType, fileName);
 		}
 	}
 }
