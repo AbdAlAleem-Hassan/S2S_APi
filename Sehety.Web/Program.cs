@@ -3,6 +3,7 @@ using FluentValidation;
 using FluentValidation.AspNetCore;
 using Google.Apis.Auth.OAuth2;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -18,6 +19,7 @@ using S2S.Services;
 using S2S.ServicesAbstraction;
 using S2S.Shared.Mappings;
 using S2S.Shared.Validators;
+using S2S.Web.Services;
 using Serilog;
 using System.Data.Common;
 using System.Text;
@@ -32,6 +34,21 @@ if (!string.IsNullOrEmpty(port))
 {
     builder.WebHost.UseUrls($"http://*:{port}");
 }
+
+var googleCredentialsPath = builder.Configuration["Google:ApplicationCredentials"];
+if (!string.IsNullOrWhiteSpace(googleCredentialsPath)
+    && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS")))
+{
+    Environment.SetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS", googleCredentialsPath);
+}
+
+var hasGroqApiKey = !string.IsNullOrWhiteSpace(builder.Configuration["Groq:ApiKey"])
+    || !string.IsNullOrWhiteSpace(builder.Configuration["GROQ_API_KEY"]);
+var googleCredentialsSection = builder.Configuration.GetSection("Google:Credentials");
+var hasGoogleCredentials = !string.IsNullOrWhiteSpace(builder.Configuration["Google:CredentialsJson"])
+    || !string.IsNullOrWhiteSpace(builder.Configuration["Google:ApplicationCredentials"])
+    || !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS"))
+    || googleCredentialsSection.GetChildren().Any(child => !string.IsNullOrWhiteSpace(child.Value));
 
 // Add services to the container.
 #region Serilog Logging Conf
@@ -59,10 +76,14 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAll",
+    options.AddPolicy("AllowFrontend",
         policy =>
         {
-            policy.AllowAnyOrigin()
+            policy.WithOrigins(
+                    "https://s2sai.online",
+                    "https://www.s2sai.online",
+                    "http://localhost:3000",
+                    "http://localhost:5173")
                   .AllowAnyHeader()
                   .AllowAnyMethod();
         });
@@ -70,6 +91,8 @@ builder.Services.AddCors(options =>
 
 builder.Services.AddRateLimiter(options =>
 {
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
     options.AddFixedWindowLimiter("auth-limit", opt =>
     {
         opt.Window = TimeSpan.FromMinutes(1);
@@ -77,6 +100,36 @@ builder.Services.AddRateLimiter(options =>
         opt.QueueLimit = 0;
         opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
     });
+
+    options.AddPolicy("otp-request-limit", context =>
+    {
+        var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var email = context.Request.Query["email"].ToString();
+        var key = string.IsNullOrWhiteSpace(email)
+            ? ip
+            : $"{ip}:{email.Trim().ToLowerInvariant()}";
+
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: key,
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 3,
+                Window = TimeSpan.FromMinutes(10),
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst
+            });
+    });
+
+    options.AddPolicy("otp-verify-limit", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(10),
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst
+            }));
 
     // Dedicated stricter rate limit for ChangePassword: 3 attempts per 10 minutes per IP
     options.AddPolicy("change-password-limit", context =>
@@ -88,6 +141,18 @@ builder.Services.AddRateLimiter(options =>
             Window = TimeSpan.FromMinutes(5),
             QueueLimit = 0
         }));
+
+    // Rate limit for STT (audio-to-sign) requests: 10 per minute per IP
+    options.AddPolicy("stt-limit", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst
+            }));
 });
 
 // Resolve Connection String dynamically for Cloud/Docker
@@ -101,10 +166,18 @@ builder.Services.AddKeyedScoped<IDataInitializer, IdentityDataInitializer>("Iden
 builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddHttpClient<ISpeechToTextService, GroqSpeechToTextService>(client =>
+{
+    var timeoutSeconds = builder.Configuration.GetValue("SttSettings:TimeoutSeconds", 30);
+    client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+});
+builder.Services.AddSingleton<ITextToSpeechService, GoogleTextToSpeechService>();
 builder.Services.AddHttpClient<IAiTranslationService, AiTranslationService>();
+builder.Services.AddHostedService<MediaCleanupService>();
 
 // AutoMapper Configuration
-builder.Services.AddAutoMapper(typeof(MappingProfiles));
+//builder.Services.AddAutoMapper(typeof(MappingProfiles).Assembly);
+builder.Services.AddAutoMapper(cfg => { }, typeof(MappingProfiles).Assembly);
 
 builder.Services.AddIdentityCore<ApplicationUser>(options =>
 {
@@ -187,7 +260,7 @@ if (!string.IsNullOrEmpty(firebaseJson))
 {
 	FirebaseApp.Create(new AppOptions()
 	{
-		Credential = GoogleCredential.FromJson(firebaseJson)
+        Credential = CredentialFactory.FromJson(firebaseJson, "service_account")
 	});
 }
 else
@@ -199,7 +272,7 @@ else
 	{
 		FirebaseApp.Create(new AppOptions()
 		{
-			Credential = GoogleCredential.FromFile(fullPath)
+            Credential = CredentialFactory.FromFile(fullPath, "service_account")
 		});
 	}
 	else
@@ -214,6 +287,16 @@ else
 
 
 var app = builder.Build();
+
+if (!hasGroqApiKey)
+{
+    app.Logger.LogWarning("Groq API key is missing. STT endpoints will fail.");
+}
+
+if (!hasGoogleCredentials)
+{
+    app.Logger.LogWarning("Google TTS credentials are missing. Audio responses will be skipped.");
+}
 
 // Automatic Database Migrations on Startup
 var applyMigrationsOnStartup = builder.Configuration.GetValue("ApplyMigrationsOnStartup", true);
@@ -247,7 +330,7 @@ app.UseSerilogRequestLogging();
 app.UseForwardedHeaders();
 app.UseHttpsRedirection();
 app.UseStaticFiles();
-app.UseCors("AllowAll");
+app.UseCors("AllowFrontend");
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();

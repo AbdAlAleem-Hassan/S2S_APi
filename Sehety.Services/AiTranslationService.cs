@@ -19,7 +19,13 @@ namespace S2S.Services
 			_client = client;
 			_logger = logger;
 			_env = env;
-			_client.BaseAddress = new Uri(config["AISettings:BaseUrl"]);
+			var baseUrl = config["AISettings:BaseUrl"];
+			if (string.IsNullOrWhiteSpace(baseUrl))
+			{
+				_logger.LogError("AISettings:BaseUrl is missing or empty.");
+				throw new InvalidOperationException("AISettings:BaseUrl is required.");
+			}
+			_client.BaseAddress = new Uri(baseUrl, UriKind.Absolute);
 
 			var hfToken = config["AISettings:HFToken"];
 			if (!string.IsNullOrEmpty(hfToken))
@@ -38,9 +44,9 @@ namespace S2S.Services
 			}
 		}
 
-		public async Task<Result<string>> SendSignToTextAsync(IFormFile video, string language, bool includeAudio)
+		public async Task<Result<string>> SendSignToTextAsync(IFormFile video)
 		{
-			_logger.LogInformation("Starting SendSignToTextAsync. Language: {Language}, IncludeAudio: {IncludeAudio}", language, includeAudio);
+			_logger.LogInformation("Starting SendSignToTextAsync.");
 
 			// 1. Validation (مثلما تفعل في AuthenticationService)
 			if (video is null || video.Length == 0)
@@ -56,11 +62,6 @@ namespace S2S.Services
 				var fileContent = new StreamContent(video.OpenReadStream());
 				fileContent.Headers.ContentType = new MediaTypeHeaderValue(video.ContentType);
 				content.Add(fileContent, "video_file", video.FileName);
-
-				if (!string.IsNullOrEmpty(language))
-					content.Add(new StringContent(language), "language");
-
-				content.Add(new StringContent(includeAudio.ToString().ToLower()), "include_audio");
 
 				var response = await _client.PostAsync("translate/sign-to-text", content);
 
@@ -101,15 +102,15 @@ namespace S2S.Services
 
 			try
 			{
-				using var content = new MultipartFormDataContent();
+				var payload = new Dictionary<string, string>
+				{
+					["text"] = text,
+					["avatar"] = string.IsNullOrWhiteSpace(avatar) ? "default" : avatar,
+					["speed"] = string.IsNullOrWhiteSpace(speed) ? "1.0" : speed,
+					["output_format"] = string.IsNullOrWhiteSpace(outputFormat) ? "pose" : outputFormat
+				};
 
-				content.Add(new StringContent(text), "text");
-				content.Add(new StringContent(avatar ?? "default"), "avatar");
-				content.Add(new StringContent(speed ?? "1.0"), "speed");
-
-
-				content.Add(new StringContent(string.IsNullOrEmpty(outputFormat) ? "pose" : outputFormat), "output_format");
-
+				using var content = new FormUrlEncodedContent(payload);
 				var response = await _client.PostAsync("translate/to-sign", content);
 
 				if (!response.IsSuccessStatusCode)
@@ -130,56 +131,6 @@ namespace S2S.Services
 			catch (Exception ex)
 			{
 				_logger.LogError(ex, "Exception occurred during TextToSign connection.");
-				return Error.Failure("AiServer.Connection", $"Failed to connect to AI Server: {ex.Message}");
-			}
-		}
-
-		public async Task<Result<string>> SendAudioToSignAsync(IFormFile audio, string avatar, string speed, string outputFormat)
-		{
-			_logger.LogInformation("Starting AudioToSign request. File: {FileName}, Size: {Size}, Avatar: {Avatar}, Speed: {Speed}",
-				audio?.FileName, audio?.Length, avatar, speed);
-
-			if (audio is null || audio.Length == 0)
-			{
-				_logger.LogWarning("AudioToSign validation failed: Audio file is null or empty.");
-				return Error.Validation("Audio.Empty", "Audio file is required.");
-			}
-
-			try
-			{
-				using var content = new MultipartFormDataContent();
-
-				var fileContent = new StreamContent(audio.OpenReadStream());
-				fileContent.Headers.ContentType = new MediaTypeHeaderValue(audio.ContentType);
-				content.Add(fileContent, "audio_file", audio.FileName);
-
-				content.Add(new StringContent(avatar ?? "default"), "avatar");
-				content.Add(new StringContent(speed ?? "1.0"), "speed");
-
-				content.Add(new StringContent(string.IsNullOrEmpty(outputFormat) ? "pose" : outputFormat), "output_format");
-
-				var response = await _client.PostAsync("translate/to-sign", content);
-
-				if (!response.IsSuccessStatusCode)
-				{
-					var body = await response.Content.ReadAsStringAsync();
-
-					_logger.LogError("AI Server returned error in AudioToSign. StatusCode: {StatusCode}, Body: {Body}",
-						response.StatusCode, body);
-
-					return Error.Failure("AiServer.Error", $"AI Server Error ({response.StatusCode}): {body}");
-				}
-
-				var resultString = await response.Content.ReadAsStringAsync();
-
-				
-				_logger.LogInformation("AudioToSign translation completed successfully for file: {FileName}", audio.FileName);
-
-				return resultString;
-			}
-			catch (Exception ex)
-			{
-				_logger.LogError(ex, "Exception occurred during AudioToSign for file: {FileName}", audio.FileName);
 				return Error.Failure("AiServer.Connection", $"Failed to connect to AI Server: {ex.Message}");
 			}
 		}

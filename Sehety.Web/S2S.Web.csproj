@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
 	<PropertyGroup>
 		<TargetFramework>net10.0</TargetFramework>
@@ -18,7 +18,7 @@
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
 		<PackageReference Include="Microsoft.AspNetCore.Mvc.Versioning.ApiExplorer" Version="5.1.0" />
-		<PackageReference Include="AutoMapper" Version="13.0.1" />
+		<PackageReference Include="AutoMapper" Version="16.1.1" />
 		<PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.23.0" />
 		<PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
 		<PackageReference Include="Serilog.Sinks.Seq" Version="9.0.0" />
@@ -28,9 +28,12 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<ProjectReference Include="..\Sehety.Domain\S2S.Domain.csproj" />
 		<ProjectReference Include="..\Sehety.Persistence\S2S.Persistence.csproj" />
 		<ProjectReference Include="..\Sehety.Presentation\S2S.Presentation.csproj" />
 		<ProjectReference Include="..\Sehety.Services\S2S.Services.csproj" />
+		<ProjectReference Include="..\Sehety.ServicesAbstraction\S2S.ServicesAbstraction.csproj" />
+		<ProjectReference Include="..\Sehety.Shared\S2S.Shared.csproj" />
 	</ItemGroup>
 
 	<ItemGroup>

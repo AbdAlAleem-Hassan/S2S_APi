@@ -46,3 +46,17 @@ BACKEND_IMAGE=ghcr.io/hedra-nabil/s2sai-backend:latest
 ```
 
 Production secrets are read from the server `.env`, not from appsettings files.
+
+## Required secrets
+
+Set these values in your production environment or `.env` file (do not commit secrets).
+
+```env
+GROQ_API_KEY=YOUR_GROQ_API_KEY
+GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/google-tts-sa.json
+```
+
+Alternative Google credentials options (use one):
+
+- `Google__CredentialsJson` (store the full JSON in a secret manager)
+- `Google__Credentials__private_key` and other fields (key-per-field)

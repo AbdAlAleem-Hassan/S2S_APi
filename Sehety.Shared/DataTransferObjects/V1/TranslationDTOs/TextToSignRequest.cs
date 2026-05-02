@@ -9,7 +9,7 @@ namespace S2S.Shared.DataTransferObjects.V1.TranslationDTOs
 	public class TextToSignRequest
 	{
 		[FromForm(Name ="text")] 
-		public string Text { get; set; }
+		public string Text { get; set; } = string.Empty;
 		[FromForm(Name = "avatar")]
 		[DefaultValue("default")]
 		public string Avatar { get; set; } = "default";

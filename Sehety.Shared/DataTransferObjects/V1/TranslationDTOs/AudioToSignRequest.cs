@@ -7,7 +7,7 @@ namespace S2S.Shared.DataTransferObjects.V1.TranslationDTOs
 	public class AudioToSignRequest
 	{
 		[FromForm(Name = "audio_file")]
-		public IFormFile AudioFile { get; set; }
+		public IFormFile AudioFile { get; set; } = default!;
 		[FromForm(Name = "avatar")]
 		[DefaultValue("default")]
 		public string Avatar { get; set; } = "default";

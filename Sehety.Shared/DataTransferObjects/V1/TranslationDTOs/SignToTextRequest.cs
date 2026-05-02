@@ -10,7 +10,7 @@ namespace S2S.Shared.DataTransferObjects.V1.TranslationDTOs
 	public class SignToTextRequest
 	{
 		[FromForm(Name = "video_file")]
-		public IFormFile VideoFile { get; set; }
+		public IFormFile VideoFile { get; set; } = default!;
 
 		[FromForm(Name = "language")]
 		[DefaultValue("ar")]
