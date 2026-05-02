@@ -70,6 +70,7 @@ namespace S2S.Presentation.Controllers.V1
 
 
 		//POST baseUrl/api/Authentication/Register
+        [EnableRateLimiting("otp-request-limit")]
 		[HttpPost("Register")]
 		public async Task<ActionResult> Register(RegisterDTO registerDTO)
 		{
@@ -79,6 +80,7 @@ namespace S2S.Presentation.Controllers.V1
 			return HandleRequest(result);
 		}
 
+        [EnableRateLimiting("otp-verify-limit")]
         [HttpPost("VerifyEmail")]
         public async Task<ActionResult<UserDTO>> VerifyEmail(VerifyOtpDTO verifyOtpDTO)
         {
@@ -127,6 +129,7 @@ namespace S2S.Presentation.Controllers.V1
             return Ok(new { success = true, message = "Logged out successfully" });
         }
 
+        [EnableRateLimiting("otp-request-limit")]
         [HttpPost("ResendOtp")]
         public async Task<ActionResult> ResendOtp([FromQuery] string email)
         {
@@ -136,6 +139,7 @@ namespace S2S.Presentation.Controllers.V1
             return HandleRequest(result);
         }
 
+        [EnableRateLimiting("otp-request-limit")]
         [HttpPost("ForgotPassword")]
         public async Task<ActionResult> ForgotPassword(ForgotPasswordDTO forgotPasswordDTO)
         {
@@ -145,6 +149,7 @@ namespace S2S.Presentation.Controllers.V1
             return HandleRequest(result);
         }
 
+        [EnableRateLimiting("otp-verify-limit")]
         [HttpPost("ResetPassword")]
         public async Task<ActionResult> ResetPassword(ResetPasswordDTO resetPasswordDTO)
         {
@@ -223,6 +228,46 @@ namespace S2S.Presentation.Controllers.V1
 			// بنستخدم دالتك الموحدة للرد
 			return HandleRequest(result);
 		}
+
+        [Authorize]
+        [HttpPost("UpdateProfile")]
+        public async Task<ActionResult<UpdateProfileResponseDTO>> UpdateProfile(
+            [FromBody] UpdateProfileDTO updateProfileDTO,
+            CancellationToken cancellationToken)
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Unauthorized(new { message = "Invalid token or user not authenticated." });
+            }
+
+            var result = await _authenticationService.UpdateProfileAsync(userId, updateProfileDTO, cancellationToken);
+            if (!result.IsSuccess)
+            {
+                return HandleRequest(result);
+            }
+
+            var profileUrl = BuildProfileImageUrl(result.Value.ProfileImageUrl);
+            var response = result.Value with { ProfileImageUrl = profileUrl };
+            return Ok(response);
+        }
+
+        private string? BuildProfileImageUrl(string? fileName)
+        {
+            if (string.IsNullOrWhiteSpace(fileName))
+            {
+                return null;
+            }
+
+            if (Uri.TryCreate(fileName, UriKind.Absolute, out _))
+            {
+                return fileName;
+            }
+
+            var request = HttpContext.Request;
+            var baseUrl = $"{request.Scheme}://{request.Host}{request.PathBase}";
+            return $"{baseUrl}/api/v1/media/profile/{fileName}";
+        }
 
 	}
 }

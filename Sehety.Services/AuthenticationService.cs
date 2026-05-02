@@ -18,6 +18,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 
 namespace S2S.Services
 {
@@ -734,6 +735,55 @@ namespace S2S.Services
 
 			_logger.LogInformation("FCM Token updated successfully. UserId: {UserId}", user.Id);
 			return Result.Ok();
+		}
+
+		public async Task<Result<UpdateProfileResponseDTO>> UpdateProfileAsync(
+			string userId,
+			UpdateProfileDTO updateProfileDTO,
+			CancellationToken cancellationToken = default)
+		{
+			_logger.LogInformation("Processing Update Profile request. UserId: {UserId}", userId);
+
+			var user = await _userManager.FindByIdAsync(userId);
+			if (user == null)
+			{
+				_logger.LogWarning("Update Profile failed: User not found. UserId: {UserId}", userId);
+				return Error.NotFound("UserNotFound", "User not found.");
+			}
+
+			var displayName = updateProfileDTO.DisplayName?.Trim();
+			if (string.IsNullOrWhiteSpace(displayName))
+			{
+				return Error.Validation("DisplayName.Required", "Display name is required.");
+			}
+
+			if (!string.Equals(user.DisplayName, displayName, StringComparison.Ordinal))
+			{
+				user.DisplayName = displayName;
+			}
+
+			if (!string.IsNullOrWhiteSpace(updateProfileDTO.PhoneNumber))
+			{
+				var phoneInUse = await _userManager.Users
+					.AnyAsync(u => u.PhoneNumber == updateProfileDTO.PhoneNumber && u.Id != userId, cancellationToken);
+				if (phoneInUse)
+				{
+					return Error.Validation("DuplicatePhoneNumber", "Phone number is already in use.");
+				}
+
+				user.PhoneNumber = updateProfileDTO.PhoneNumber;
+			}
+
+			user.UpdatedAt = DateTime.UtcNow;
+			var updateResult = await _userManager.UpdateAsync(user);
+			if (!updateResult.Succeeded)
+			{
+				var errorCodes = string.Join(", ", updateResult.Errors.Select(e => e.Code));
+				_logger.LogError("Update Profile failed. UserId: {UserId}, Errors: {Errors}", user.Id, errorCodes);
+				return updateResult.Errors.Select(e => Error.Validation(e.Code, e.Description)).ToList();
+			}
+
+			return new UpdateProfileResponseDTO(user.DisplayName, user.PhoneNumber, user.ProfileImageUrl);
 		}
 
 		public async Task<Result> ChangePasswordAsync(string userId, ChangePasswordDTO changePasswordDTO)

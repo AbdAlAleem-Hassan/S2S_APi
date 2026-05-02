@@ -11,5 +11,8 @@
     <Project Path="Sehety.Presentation/S2S.Presentation.csproj" Id="7f3edc94-346b-4eca-9b56-87022df5619f" />
     <Project Path="Sehety.Web/S2S.Web.csproj" />
   </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="Sehety.Services.Tests/Sehety.Services.Tests.csproj" Id="b8e611d8-6d9f-4d2c-bc3a-7c9b8a2dd5bf" />
+  </Folder>
   <Project Path="Sehety.Shared/S2S.Shared.csproj" Id="528065f7-c06e-4072-9cdf-ff8560fb86af" />
 </Solution>
