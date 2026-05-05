@@ -29,8 +29,7 @@ namespace S2S.Persistence.IdentityData.DataSeed
 				if (!_roleManager.Roles.Any())
 				{
 					await _roleManager.CreateAsync(new IdentityRole("Admin"));
-					await _roleManager.CreateAsync(new IdentityRole("Doctor"));
-					await _roleManager.CreateAsync(new IdentityRole("Patient"));
+					await _roleManager.CreateAsync(new IdentityRole("User"));
 				}
 
 				if (!_userManager.Users.Any())
@@ -39,22 +38,14 @@ namespace S2S.Persistence.IdentityData.DataSeed
 					{
 						DisplayName = "Aleem Hassan",
 						UserName = "AbdalaleemElsayed",
-						Email = "Aleem@gmail.com",
+						Email = "nawiya7975@kynninc.com",
 						PhoneNumber = "01277277089"
 					};
-					var User02 = new ApplicationUser
-					{
-						DisplayName = "Hedra Nabil",
-						UserName = "HedraNabil",
-						Email = "Hedra@gmail.com",
-						PhoneNumber = "01088755432"
-					};
+					
 
-					await _userManager.CreateAsync(User01, "Pa$$w0rd");
-					await _userManager.CreateAsync(User02, "Pa$$w0rd");
+					await _userManager.CreateAsync(User01, "PaS_Admin#123");
 
 					await _userManager.AddToRoleAsync(User01, "Admin");
-					await _userManager.AddToRoleAsync(User02, "Doctor");
 				}
 			}
 			catch (Exception ex)

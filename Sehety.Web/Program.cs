@@ -19,6 +19,7 @@ using S2S.Services;
 using S2S.ServicesAbstraction;
 using S2S.Shared.Mappings;
 using S2S.Shared.Validators;
+using S2S.Web.Extensions;
 using S2S.Web.Services;
 using Serilog;
 using System.Data.Common;
@@ -164,6 +165,7 @@ builder.Services.AddDbContext<S2SIdentityDbContext>(option =>
 
 builder.Services.AddKeyedScoped<IDataInitializer, IdentityDataInitializer>("Identity");
 builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
+builder.Services.AddScoped<IAdminService, AdminService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddHttpClient<ISpeechToTextService, GroqSpeechToTextService>(client =>
@@ -315,7 +317,7 @@ if (applyMigrationsOnStartup)
 }
 
 #region Data Seeding
-//await app.SeedIdentityDatabase();
+await app.SeedIdentityDatabase();
 #endregion
 
 // Configure the HTTP request pipeline.

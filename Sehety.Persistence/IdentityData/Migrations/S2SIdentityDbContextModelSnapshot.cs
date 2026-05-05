@@ -301,7 +301,7 @@ namespace S2S.Persistence.IdentityData.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("UserOtps");
+                    b.ToTable("UserOtps", (string)null);
                 });
 
             modelBuilder.Entity("S2S.Domain.Entities.IdentityModule.UserPasswordHistory", b =>
@@ -327,7 +327,7 @@ namespace S2S.Persistence.IdentityData.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("UserPasswordHistories");
+                    b.ToTable("UserPasswordHistories", (string)null);
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>

@@ -81,9 +81,19 @@ namespace S2S.Services
 			// Check if account is locked
 			if (await _userManager.IsLockedOutAsync(user))
 			{
-				var remainingTime = Math.Ceiling((user.LockoutEnd!.Value - DateTimeOffset.UtcNow).TotalMinutes);
-				_logger.LogWarning("Login failed: Account locked. UserId: {UserId}", user.Id);
-				return Error.Unauthorized("AccountLocked", $"Account is locked. Try again in {remainingTime} minutes.");
+				var remainingTime = user.LockoutEnd!.Value - DateTimeOffset.UtcNow;
+
+				if (remainingTime.TotalDays > 365)
+				{
+					_logger.LogWarning("Login failed: Account suspended by Admin. UserId: {UserId}", user.Id);
+					return Error.Unauthorized("AccountSuspended", "Your account has been suspended by the administrator.");
+				}
+				else 
+				{
+					var remainingMinutes = Math.Ceiling(remainingTime.TotalMinutes);
+					_logger.LogWarning("Login failed: Account temporarily locked. UserId: {UserId}", user.Id);
+					return Error.Unauthorized("AccountLocked", $"Account is locked. Try again in {remainingMinutes} minutes.");
+				}
 			}
 
 			if (!user.EmailConfirmed)
