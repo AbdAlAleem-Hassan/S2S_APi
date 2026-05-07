@@ -14,9 +14,9 @@ namespace S2S.Shared.DataTransferObjects.V1.TranslationDTOs
 
 		[FromForm(Name = "language")]
 		[DefaultValue("ar")]
-		public string Language { get; set; } = "ar"; // القيمة الافتراضية
+		public string Language { get; set; } = "ar"; 
 
 		[FromForm(Name = "include_audio")]
-		public bool IncludeAudio { get; set; } = false; // القيمة الافتراضية
+		public bool IncludeAudio { get; set; } = false; 
 	}
 }

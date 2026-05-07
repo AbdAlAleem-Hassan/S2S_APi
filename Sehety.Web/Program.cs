@@ -22,6 +22,7 @@ using S2S.ServicesAbstraction;
 using S2S.Shared.Constants;
 using S2S.Shared.Mappings;
 using S2S.Shared.Validators;
+using S2S.Web.Extensions;
 using S2S.Web.Health;
 using S2S.Web.Middleware;
 using S2S.Web.Services;
@@ -194,6 +195,7 @@ builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IOtpService, OtpService>();
 builder.Services.AddScoped<IProfileService, ProfileService>();
+builder.Services.AddScoped<IAdminService, AdminService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddHttpClient<ISpeechToTextService, GroqSpeechToTextService>(client =>
@@ -350,7 +352,7 @@ if (applyMigrationsOnStartup)
 }
 
 #region Data Seeding
-//await app.SeedIdentityDatabase();
+await app.SeedIdentityDatabase();
 #endregion
 
 // Configure the HTTP request pipeline.
