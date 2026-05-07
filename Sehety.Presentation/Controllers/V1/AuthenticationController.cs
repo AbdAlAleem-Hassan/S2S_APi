@@ -1,12 +1,15 @@
 using Asp.Versioning;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Configuration;
 using S2S.Presentation.Filters;
 using S2S.ServicesAbstraction;
 using S2S.Shared.Constants;
+using S2S.Shared.CommonResult;
 using S2S.Shared.DataTransferObjects.V1.FirebaseDTOs;
 using S2S.Shared.DataTransferObjects.V1.GoogleIdentity;
 using S2S.Shared.DataTransferObjects.V1.IdentityDTOs;
@@ -26,19 +29,22 @@ namespace S2S.Presentation.Controllers.V1
 		private readonly ITokenService _tokenService;
 		private readonly IProfileService _profileService;
 		private readonly IAntiforgery _antiforgery;
+		private readonly IConfiguration _configuration;
 
 		public AuthenticationController(
 			IAuthService authService,
 			IOtpService otpService,
 			ITokenService tokenService,
 			IProfileService profileService,
-			IAntiforgery antiforgery)
+			IAntiforgery antiforgery,
+			IConfiguration configuration)
 		{
 			_authService = authService;
 			_otpService = otpService;
 			_tokenService = tokenService;
 			_profileService = profileService;
 			_antiforgery = antiforgery;
+			_configuration = configuration;
 		}
 
 		//POST baseUrl/api/Authentication/Login
@@ -48,10 +54,8 @@ namespace S2S.Presentation.Controllers.V1
 			var result = await _authService.LoginAsync(loginDTO);
             if (result.IsSuccess && result.Value.RefreshToken != null)
             {
-                // For web clients: set cookie
                 SetRefreshTokenCookie(result.Value.RefreshToken);
-                // For mobile clients: include refresh token in response body
-                return Ok(result.Value);
+                return Ok(WithProfileUrl(result.Value));
             }
 			return HandleRequest(result);
 		}
@@ -80,7 +84,7 @@ namespace S2S.Presentation.Controllers.V1
 			if (result.IsSuccess && result.Value.RefreshToken != null)
 			{
 				SetRefreshTokenCookie(result.Value.RefreshToken);
-				return Ok(result.Value);
+				return Ok(WithProfileUrl(result.Value));
 			}
 
 			return HandleRequest(result);
@@ -106,7 +110,7 @@ namespace S2S.Presentation.Controllers.V1
             if (result.IsSuccess && result.Value.RefreshToken != null)
             {
                 SetRefreshTokenCookie(result.Value.RefreshToken);
-                return Ok(result.Value with { RefreshToken = null });
+                return Ok(WithProfileUrl(result.Value) with { RefreshToken = null });
             }
             return HandleRequest(result);
         }
@@ -124,12 +128,8 @@ namespace S2S.Presentation.Controllers.V1
             var result = await _tokenService.RefreshTokenAsync(refreshToken);
             if (result.IsSuccess && result.Value.RefreshToken != null)
             {
-                // For web clients: set cookie
                 SetRefreshTokenCookie(result.Value.RefreshToken);
-                
-                // For mobile clients: include refresh token in response body
-                // Web clients can ignore it since they use cookies
-                return Ok(result.Value);
+                return Ok(WithProfileUrl(result.Value));
             }
             return HandleRequest(result);
         }
@@ -222,6 +222,18 @@ namespace S2S.Presentation.Controllers.V1
             _antiforgery.GetAndStoreTokens(HttpContext);
         }
 
+        /// <summary>
+        /// Rewrites ProfileImageUrl from stored filename to full public media URL.
+        /// </summary>
+        private UserDTO WithProfileUrl(UserDTO dto)
+        {
+            if (string.IsNullOrWhiteSpace(dto.ProfileImageUrl))
+                return dto;
+
+            var fullUrl = UrlRewriter.BuildMediaUrl(HttpContext, dto.ProfileImageUrl, "profile");
+            return dto with { ProfileImageUrl = fullUrl };
+        }
+
 /*
 		[HttpGet("EmailExists")]
 		public async Task<ActionResult<bool>> CheckEmail(string email)
@@ -236,8 +248,10 @@ namespace S2S.Presentation.Controllers.V1
 		public async Task<ActionResult<UserDTO>> GetCurrentUser()
 		{
 			var Email = User.FindFirstValue(ClaimTypes.Email);
-			var Result = await _profileService.GetUserByEmailAsync(Email!);
-			return HandleRequest(Result);
+			var result = await _profileService.GetUserByEmailAsync(Email!);
+			if (result.IsSuccess)
+				return Ok(WithProfileUrl(result.Value));
+			return HandleRequest(result);
 		}
 
 		[Authorize]
@@ -310,6 +324,25 @@ namespace S2S.Presentation.Controllers.V1
                 return HandleRequest(result);
 
             return Ok(new { message = "Email changed successfully. Please log in again with your new email." });
+        }
+
+        [Authorize]
+        [HttpPost("UploadProfileImage")]
+        [EnableRateLimiting(RateLimitPolicies.ProfileImageUploadLimit)]
+        [RequestSizeLimit(MediaDefaults.MaxProfileImageSizeBytes)]
+        public async Task<ActionResult> UploadProfileImage(IFormFile image)
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userId))
+                return Unauthorized(new { message = "Invalid token or user not authenticated." });
+
+            var storagePath = _configuration["UploadStorage:BasePath"] ?? "/var/www/uploads";
+            var result = await _profileService.UploadProfileImageAsync(userId, image, storagePath);
+            if (!result.IsSuccess)
+                return HandleRequest(Result.Fail(result.Errors.ToList()));
+
+            var profileUrl = UrlRewriter.BuildMediaUrl(HttpContext, result.Value, "profile");
+            return Ok(new { profileImageUrl = profileUrl });
         }
 
 	}

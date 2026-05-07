@@ -50,7 +50,8 @@ namespace S2S.Shared.Mappings
                 .ForCtorParam("Email", opt => opt.MapFrom(src => src.Email!))
                 .ForCtorParam("DisplayName", opt => opt.MapFrom(src => src.DisplayName))
                 .ForCtorParam("Token", opt => opt.MapFrom(_ => string.Empty)) // Will be set manually
-                .ForCtorParam("RefreshToken", opt => opt.MapFrom(src => src.RefreshToken));
+                .ForCtorParam("RefreshToken", opt => opt.MapFrom(src => src.RefreshToken))
+                .ForCtorParam("ProfileImageUrl", opt => opt.MapFrom(src => src.ProfileImageUrl));
         }
 
         

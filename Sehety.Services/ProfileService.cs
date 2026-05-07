@@ -1,4 +1,5 @@
 using AutoMapper;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -9,6 +10,8 @@ using S2S.ServicesAbstraction;
 using S2S.Shared.CommonResult;
 using S2S.Shared.Constants;
 using S2S.Shared.DataTransferObjects.V1.IdentityDTOs;
+using S2S.Shared.Security;
+using SixLabors.ImageSharp.Processing;
 
 namespace S2S.Services
 {
@@ -396,5 +399,159 @@ namespace S2S.Services
                 throw;
             }
         }
+
+        private static readonly HashSet<string> AllowedImageExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".jpg", ".jpeg", ".png", ".webp"
+        };
+
+        private static readonly HashSet<string> AllowedImageContentTypes = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "image/jpeg", "image/png", "image/webp"
+        };
+
+        private const int MaxImageDimension = 512;
+
+        public async Task<Result<string>> UploadProfileImageAsync(string userId, IFormFile image, string storagePath)
+        {
+            _logger.LogInformation("Processing profile image upload. UserId: {UserId}", userId);
+
+            // --- Validate user ---
+            var user = await _userManager.FindByIdAsync(userId);
+            if (user == null)
+            {
+                _logger.LogWarning("Profile image upload failed: User not found. UserId: {UserId}", userId);
+                return Error.NotFound("UserNotFound", "User not found.");
+            }
+
+            // --- Validate file presence ---
+            if (image == null || image.Length == 0)
+            {
+                return Error.Validation("Image.Required", "Image file is required.");
+            }
+
+            // --- Validate file size ---
+            if (image.Length > MediaDefaults.MaxProfileImageSizeBytes)
+            {
+                return Error.Validation("Image.TooLarge", "Image file cannot exceed 5 MB.");
+            }
+
+            // --- Validate extension (never trust original filename) ---
+            var safeOriginalName = Path.GetFileName(image.FileName);
+            var extension = Path.GetExtension(safeOriginalName)?.ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(extension) || !AllowedImageExtensions.Contains(extension))
+            {
+                return Error.Validation("Image.InvalidFormat", "Only JPEG, PNG, and WebP images are allowed.");
+            }
+
+            // --- Validate MIME type ---
+            if (!string.IsNullOrWhiteSpace(image.ContentType)
+                && !AllowedImageContentTypes.Contains(image.ContentType))
+            {
+                return Error.Validation("Image.InvalidContentType", "Unsupported image content type.");
+            }
+
+            // --- Validate magic bytes (file signature) ---
+            if (!FileSignatureValidator.IsAllowedImage(image, extension))
+            {
+                return Error.Validation("Image.InvalidSignature", "File content does not match its extension.");
+            }
+
+            // --- Generate safe filename ---
+            var newFileName = $"{Guid.NewGuid()}{extension}";
+            var profileDir = Path.Combine(storagePath, "profile");
+
+            try
+            {
+                Directory.CreateDirectory(profileDir);
+
+                // --- Delete old image if exists ---
+                if (!string.IsNullOrWhiteSpace(user.ProfileImageUrl))
+                {
+                    var oldFileName = Path.GetFileName(user.ProfileImageUrl);
+                    var oldFilePath = Path.Combine(profileDir, oldFileName);
+                    var resolvedOldPath = Path.GetFullPath(oldFilePath);
+                    var resolvedProfileDir = Path.GetFullPath(profileDir);
+                    if (resolvedOldPath.StartsWith(resolvedProfileDir, StringComparison.OrdinalIgnoreCase)
+                        && File.Exists(resolvedOldPath))
+                    {
+                        try
+                        {
+                            File.Delete(resolvedOldPath);
+                            _logger.LogInformation("Deleted old profile image: {FileName}", oldFileName);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to delete old profile image: {FileName}", oldFileName);
+                        }
+                    }
+                }
+
+                // --- Re-encode image: strip metadata, resize, normalize format ---
+                var newFilePath = Path.Combine(profileDir, newFileName);
+                await using (var inputStream = image.OpenReadStream())
+                {
+                    using var img = await SixLabors.ImageSharp.Image.LoadAsync(inputStream);
+
+                    // Strip all EXIF/GPS/camera metadata
+                    img.Metadata.ExifProfile = null;
+                    img.Metadata.IptcProfile = null;
+                    img.Metadata.XmpProfile = null;
+
+                    // Resize if larger than max dimension (preserve aspect ratio, never upscale)
+                    if (img.Width > MaxImageDimension || img.Height > MaxImageDimension)
+                    {
+                        img.Mutate(x => x.Resize(new SixLabors.ImageSharp.Processing.ResizeOptions
+                        {
+                            Size = new SixLabors.ImageSharp.Size(MaxImageDimension, MaxImageDimension),
+                            Mode = SixLabors.ImageSharp.Processing.ResizeMode.Max
+                        }));
+                    }
+
+                    // Re-encode to clean format (strips any embedded payloads/polyglot data)
+                    await using var outputStream = new FileStream(newFilePath, FileMode.Create);
+                    var encoder = GetEncoder(extension);
+                    await img.SaveAsync(outputStream, encoder);
+                }
+
+                // --- Update DB ---
+                user.ProfileImageUrl = newFileName;
+                user.UpdatedAt = DateTime.UtcNow;
+                var updateResult = await _userManager.UpdateAsync(user);
+                if (!updateResult.Succeeded)
+                {
+                    try { File.Delete(newFilePath); } catch { /* best effort */ }
+                    var errors = string.Join(", ", updateResult.Errors.Select(e => e.Description));
+                    _logger.LogError("Profile image DB update failed. UserId: {UserId}, Errors: {Errors}", userId, errors);
+                    return Error.Failure("UpdateFailed", "Failed to update profile image.");
+                }
+
+                _logger.LogInformation("Profile image uploaded successfully. UserId: {UserId}, File: {FileName}", userId, newFileName);
+                return newFileName;
+            }
+            catch (SixLabors.ImageSharp.UnknownImageFormatException)
+            {
+                _logger.LogWarning("Profile image upload rejected: unrecognizable image data. UserId: {UserId}", userId);
+                return Error.Validation("Image.Corrupt", "The uploaded file is not a valid image.");
+            }
+            catch (SixLabors.ImageSharp.InvalidImageContentException)
+            {
+                _logger.LogWarning("Profile image upload rejected: corrupted image content. UserId: {UserId}", userId);
+                return Error.Validation("Image.Corrupt", "The uploaded image is corrupted.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Storage failure during profile image upload. UserId: {UserId}", userId);
+                return Error.Failure("StorageFailure", "Failed to save image. Please try again.");
+            }
+        }
+
+        private static SixLabors.ImageSharp.Formats.IImageEncoder GetEncoder(string extension) => extension switch
+        {
+            ".jpg" or ".jpeg" => new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder { Quality = 85 },
+            ".png" => new SixLabors.ImageSharp.Formats.Png.PngEncoder { CompressionLevel = SixLabors.ImageSharp.Formats.Png.PngCompressionLevel.DefaultCompression },
+            ".webp" => new SixLabors.ImageSharp.Formats.Webp.WebpEncoder { Quality = 85 },
+            _ => new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder { Quality = 85 }
+        };
     }
 }

@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.StaticFiles;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using S2S.ServicesAbstraction;
 using S2S.Shared.CommonResult;
@@ -25,6 +26,7 @@ namespace S2S.Presentation.Controllers.V1
 		ISpeechToTextService _speechToTextService,
 		ITextToSpeechService _textToSpeechService,
 		IWebHostEnvironment _env,
+		IConfiguration _configuration,
 		ILogger<TranslateController> _logger) : ApiBaseController
 	{
 		private const long MaxVideoSizeBytes = MediaDefaults.MaxVideoSizeBytes;
@@ -325,8 +327,45 @@ namespace S2S.Presentation.Controllers.V1
 		[EnableRateLimiting(RateLimitPolicies.MediaLimit)]
 		public IActionResult GetMedia(string type, string fileName)
 		{
-			var webRootPath = _env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-			var filePath = Path.Combine(webRootPath, "media", type, fileName);
+			// --- Sanitize filename: strip path components, reject traversal characters ---
+			var safeName = Path.GetFileName(fileName);
+			if (string.IsNullOrWhiteSpace(safeName)
+				|| safeName.Contains("..", StringComparison.Ordinal)
+				|| safeName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+			{
+				return BadRequest(new { error = "Invalid file name." });
+			}
+
+			// --- Sanitize type: only allow known media types ---
+			var safeType = Path.GetFileName(type);
+			var allowedTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+				{ "audio", "video", "pose", "profile" };
+			if (!allowedTypes.Contains(safeType))
+			{
+				return BadRequest(new { error = "Invalid media type." });
+			}
+
+			// --- Resolve base directory: profile uses external storage, others use wwwroot ---
+			string baseDir;
+			if (string.Equals(safeType, "profile", StringComparison.OrdinalIgnoreCase))
+			{
+				var uploadBase = _configuration["UploadStorage:BasePath"] ?? "/var/www/uploads";
+				baseDir = Path.Combine(uploadBase, "profile");
+			}
+			else
+			{
+				var webRootPath = _env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+				baseDir = Path.Combine(webRootPath, "media", safeType);
+			}
+
+			var filePath = Path.GetFullPath(Path.Combine(baseDir, safeName));
+			var resolvedBaseDir = Path.GetFullPath(baseDir);
+
+			// --- Path traversal guard: resolved path must stay inside base directory ---
+			if (!filePath.StartsWith(resolvedBaseDir, StringComparison.OrdinalIgnoreCase))
+			{
+				return BadRequest(new { error = "Invalid file name." });
+			}
 
 			if (!System.IO.File.Exists(filePath))
 			{
@@ -342,9 +381,10 @@ namespace S2S.Presentation.Controllers.V1
 				contentType = "application/octet-stream";
 			}
 
-			// 👈 التعديل هنا: ضفنا fileName كباراميتر تالت
-			// ده بيجبر السيرفر يبعت Header بيقول للموبايل: "نزل الملف ده باسمه الأصلي"
-			return PhysicalFile(filePath, contentType, fileName);
+			// Profile images: display inline in browser; other types: force download
+			if (string.Equals(safeType, "profile", StringComparison.OrdinalIgnoreCase))
+				return PhysicalFile(filePath, contentType);
+			return PhysicalFile(filePath, contentType, safeName);
 		}
 	}
-}
+}

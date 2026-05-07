@@ -71,6 +71,7 @@ namespace S2S.Shared.Security
 				".png" => HasHeader(header, PngHeader),
 				".jpg" => HasHeader(header, JpegHeader),
 				".jpeg" => HasHeader(header, JpegHeader),
+				".webp" => HasRiffType(header, "WEBP"),
 				_ => false
 			};
 		}

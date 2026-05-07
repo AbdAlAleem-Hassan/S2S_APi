@@ -29,6 +29,7 @@
 19. [Change Email (2-Step)](#19-change-email)
 20. [CSRF / XSRF Token (Web Clients)](#20-csrf--xsrf-token)
 21. [Token Security Architecture](#21-token-security-architecture)
+22. [Profile Image Upload](#22-profile-image-upload)
 
 ---
 
@@ -678,3 +679,151 @@ If valid & not expired:
 |---|---|---|
 | **Web** | Browser handles cookie automatically | Cookie sent automatically; no manual header needed |
 | **Mobile** | Store in secure storage (e.g. Keychain/Keystore) | Send in request body: `{ "refreshToken": "..." }` |
+
+---
+
+## 22. Profile Image Upload
+
+**Endpoint:** `POST /api/v1/Auth/UploadProfileImage`  
+**Auth:** JWT Required  
+**Content-Type:** `multipart/form-data`  
+**Max Request Size:** 5 MB (enforced at Kestrel + service level)  
+**Rate Limit:** 5 uploads per minute per authenticated user
+
+### Request
+
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `image` | `IFormFile` | ✅ | JPEG, PNG, or WebP only; max 5 MB |
+
+### Validation Layers (Defense-in-Depth)
+
+| Layer | What it checks |
+|---|---|
+| **1. Presence** | File is not null and has content |
+| **2. Size** | `≤ 5 MB` (`MaxProfileImageSizeBytes`) |
+| **3. Extension** | `.jpg`, `.jpeg`, `.png`, `.webp` only |
+| **4. MIME Type** | `image/jpeg`, `image/png`, `image/webp` only |
+| **5. Magic Bytes** | `FileSignatureValidator.IsAllowedImage()` — checks actual file header bytes |
+| **6. ImageSharp decode** | File is re-decoded as an image; corrupt/polyglot files rejected |
+
+### Image Processing Pipeline (ImageSharp)
+
+| Step | Description |
+|---|---|
+| **1. Decode** | Parse uploaded bytes as image — rejects non-image payloads |
+| **2. Strip metadata** | Removes all EXIF, IPTC, XMP (GPS, camera info, etc.) |
+| **3. Resize** | Max 512×512 px, preserves aspect ratio, never upscales |
+| **4. Re-encode** | Saves clean image in original format (JPEG @85%, PNG, WebP @85%) |
+
+> **Why re-encode?** Raw uploaded bytes may contain embedded malicious payloads (polyglot files). Re-encoding through ImageSharp produces a clean file containing only valid pixel data.
+
+### Security Features
+
+| Feature | Description |
+|---|---|
+| **GUID filename** | Original filename is **never used**; stored as `{Guid}.{ext}` |
+| **External storage** | Files stored **outside wwwroot** in configurable `UploadStorage:BasePath` |
+| **Path traversal protection** | Both upload and serving validate `Path.GetFullPath()` stays within base directory |
+| **Extension + MIME + Magic bytes** | Triple validation before ImageSharp processing |
+| **Re-encoding** | Strips polyglot payloads; only clean pixel data is saved |
+| **Metadata stripping** | No EXIF/GPS/camera data leaks |
+| **Old image cleanup** | Previous profile image deleted on successful update |
+| **Rollback on DB failure** | If DB update fails, newly saved file is removed |
+| **Rate limiting** | 5 uploads/min per user (prevents abuse) |
+
+### Storage Architecture
+
+```
+/var/www/uploads/            ← Configurable via UploadStorage:BasePath
+  profile/
+    {guid}.jpg
+    {guid}.png
+    {guid}.webp
+```
+
+> Storage is **outside wwwroot** — files are NOT publicly accessible via static file middleware. They are served exclusively through the hardened `GetMedia` endpoint.
+
+**Configuration** (`appsettings.json`):
+```json
+{
+  "UploadStorage": {
+    "BasePath": "/var/www/uploads"
+  }
+}
+```
+
+**Public URL:** `{baseUrl}/api/v1/media/profile/{filename}`  
+(served via the hardened `GetMedia` endpoint with path traversal guards)
+
+### GetMedia Endpoint Hardening
+
+| Protection | Description |
+|---|---|
+| **Filename sanitization** | `Path.GetFileName()` strips path components; rejects `..` and invalid chars |
+| **Type whitelist** | Only `audio`, `video`, `pose`, `profile` accepted |
+| **Path traversal guard** | `Path.GetFullPath()` must resolve within expected base directory |
+| **External routing** | Profile images served from `UploadStorage:BasePath`; other media from `wwwroot` |
+
+### Success Response
+
+```json
+HTTP 200
+{
+  "profileImageUrl": "https://api.s2sai.online/api/v1/media/profile/a1b2c3d4-e5f6-7890-abcd-ef1234567890.jpg"
+}
+```
+
+### Error Responses
+
+| Error Code | HTTP | Description |
+|---|---|---|
+| `Image.Required` | 400 | File is missing or empty |
+| `Image.TooLarge` | 400 | File exceeds 5 MB |
+| `Image.InvalidFormat` | 400 | Unsupported file extension |
+| `Image.InvalidContentType` | 400 | MIME type doesn't match allowed types |
+| `Image.InvalidSignature` | 400 | File bytes don't match declared extension |
+| `Image.Corrupt` | 400 | ImageSharp cannot decode file (not a real image) |
+| `UserNotFound` | 404 | JWT user ID not found in DB |
+| `UpdateFailed` | 500 | DB update failed |
+| `StorageFailure` | 500 | Disk I/O error |
+
+### Profile Image URL in API Responses
+
+`ProfileImageUrl` is included in the `UserDTO` response for **all authentication endpoints**:
+
+| Endpoint | Returns `profileImageUrl` |
+|---|---|
+| `POST /Login` | ✅ |
+| `POST /google-login` | ✅ |
+| `POST /VerifyEmail` | ✅ |
+| `POST /RefreshToken` | ✅ |
+| `GET /CurrentUser` | ✅ |
+| `POST /UpdateProfile` | ✅ |
+| `POST /UploadProfileImage` | ✅ |
+
+**How it works:**
+- DB stores only the filename: `a1b2c3d4-...-.jpg`
+- Controller rewrites it to full URL via `WithProfileUrl()` helper
+- Response contains: `https://api.s2sai.online/api/v1/media/profile/a1b2c3d4-...-.jpg`
+- If user has no profile image, field is `null`
+
+### Inline Browser Display
+
+Profile images are served with `Content-Disposition: inline`:
+- Opening the URL in a browser **displays the image directly** (no download prompt)
+- Other media types (audio, video, pose) still force download
+
+### Access Model
+
+Profile image URLs use **GUID-based security** (unguessable URLs):
+
+| Property | Detail |
+|---|---|
+| **Public access** | Anyone with the full URL can view the image |
+| **URL is unguessable** | Filename is a random GUID (e.g., `a1b2c3d4-e5f6-7890-abcd-ef1234567890.jpg`) |
+| **URL only shared in auth responses** | The URL is only returned in JWT-authenticated API responses |
+| **No directory listing** | The storage endpoint only serves individual files — no browsing |
+
+> This is the same model used by Google Drive ("anyone with the link"), WhatsApp profile photos, and most modern platforms. It balances security with usability for features like chat avatars, user lists, and admin dashboards.
+

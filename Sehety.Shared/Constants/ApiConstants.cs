@@ -8,6 +8,7 @@ namespace S2S.Shared.Constants
         public const string ChangePasswordLimit = "change-password-limit";
         public const string SttLimit = "stt-limit";
         public const string MediaLimit = "media-limit";
+        public const string ProfileImageUploadLimit = "profile-image-upload-limit";
     }
 
     public static class CookieNames
@@ -36,6 +37,7 @@ namespace S2S.Shared.Constants
     {
         public const long MaxVideoSizeBytes = 50L * 1024 * 1024;
         public const long MaxAudioSizeBytes = 20L * 1024 * 1024;
+        public const long MaxProfileImageSizeBytes = 5L * 1024 * 1024;
         public const int MediaRateLimitPermits = 60;
         public const int MediaRateLimitWindowMinutes = 1;
     }

@@ -1,4 +1,4 @@
-﻿namespace S2S.Shared.DataTransferObjects.V1.IdentityDTOs
+namespace S2S.Shared.DataTransferObjects.V1.IdentityDTOs
 {
-	public record UserDTO (string Email, string DisplayName, string Token, string? RefreshToken = null);
+	public record UserDTO (string Email, string DisplayName, string Token, string? RefreshToken = null, string? ProfileImageUrl = null);
 }
