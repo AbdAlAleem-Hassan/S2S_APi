@@ -4,13 +4,13 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using S2S.ServicesAbstraction;
 using S2S.Shared.CommonResult;
+using S2S.Shared.Constants;
 using System.Text.Json;
 
 namespace S2S.Services
 {
 	public class GoogleTextToSpeechService : ITextToSpeechService
 	{
-		private const int MaxTextLength = 2000;
 		private const string DefaultLanguageCode = "ar-XA";
 		private const string DefaultVoiceName = "ar-XA-Wavenet-D";
 
@@ -56,9 +56,9 @@ namespace S2S.Services
 				return Error.Validation("Tts.EmptyText", "Text is required for speech synthesis.");
 			}
 
-			if (text.Length > MaxTextLength)
+			if (text.Length > ValidationDefaults.MaxTtsTextLength)
 			{
-				return Error.Validation("Tts.TextTooLong", "Text exceeds the maximum length for speech synthesis.");
+				return Error.Validation("Tts.TextTooLong", $"Text exceeds the maximum length of {ValidationDefaults.MaxTtsTextLength} characters for speech synthesis.");
 			}
 
 			var voiceLanguage = string.IsNullOrWhiteSpace(languageCode) ? _languageCode : languageCode;

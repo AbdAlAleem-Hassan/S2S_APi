@@ -1,9 +1,10 @@
-﻿using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using S2S.ServicesAbstraction;
-using S2S.Shared.CommonResult; 
+using S2S.Shared.CommonResult;
+using S2S.Shared.Constants;
 using System.Net.Http.Headers;
 
 namespace S2S.Services
@@ -98,6 +99,12 @@ namespace S2S.Services
 			{
 				_logger.LogWarning("TextToSign validation failed: Text is empty or null.");
 				return Error.Validation("Text.Empty", "Text is required for translation.");
+			}
+
+			if (text.Length > ValidationDefaults.MaxTranslationTextLength)
+			{
+				_logger.LogWarning("TextToSign validation failed: Text exceeds max length ({Length}).", text.Length);
+				return Error.Validation("Text.TooLong", $"Text cannot exceed {ValidationDefaults.MaxTranslationTextLength} characters.");
 			}
 
 			try

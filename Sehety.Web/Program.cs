@@ -3,6 +3,7 @@ using FluentValidation;
 using FluentValidation.AspNetCore;
 using Google.Apis.Auth.OAuth2;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
@@ -10,6 +11,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Versioning;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
 using S2S.Domain.Contracts;
 using S2S.Domain.Entities.IdentityModule;
@@ -17,8 +19,11 @@ using S2S.Persistence.IdentityData.DataSeed;
 using S2S.Persistence.IdentityData.DbContexts;
 using S2S.Services;
 using S2S.ServicesAbstraction;
+using S2S.Shared.Constants;
 using S2S.Shared.Mappings;
 using S2S.Shared.Validators;
+using S2S.Web.Health;
+using S2S.Web.Middleware;
 using S2S.Web.Services;
 using Serilog;
 using System.Data.Common;
@@ -66,6 +71,16 @@ builder.Services.AddControllers().AddJsonOptions(options =>
 builder.Services.AddFluentValidationAutoValidation();
 builder.Services.AddValidatorsFromAssemblyContaining<RegisterDTOValidator>();
 
+// Add Anti-forgery for CSRF protection (web cookie-based flow)
+builder.Services.AddAntiforgery(options =>
+{
+    options.HeaderName = "X-XSRF-TOKEN";
+    options.Cookie.Name = CookieNames.XsrfToken;
+    options.Cookie.HttpOnly = false;
+    options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+    options.Cookie.SameSite = SameSiteMode.Strict;
+});
+
 // Configure Forwarded Headers for Reverse Proxy (Docker/Heroku)
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
@@ -76,7 +91,7 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowFrontend",
+    options.AddPolicy(CorsDefaults.AllowFrontendPolicy,
         policy =>
         {
             policy.WithOrigins(
@@ -93,7 +108,7 @@ builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
-    options.AddFixedWindowLimiter("auth-limit", opt =>
+    options.AddFixedWindowLimiter(RateLimitPolicies.AuthLimit, opt =>
     {
         opt.Window = TimeSpan.FromMinutes(1);
         opt.PermitLimit = 5;
@@ -101,7 +116,7 @@ builder.Services.AddRateLimiter(options =>
         opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
     });
 
-    options.AddPolicy("otp-request-limit", context =>
+    options.AddPolicy(RateLimitPolicies.OtpRequestLimit, context =>
     {
         var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         var email = context.Request.Query["email"].ToString();
@@ -120,7 +135,7 @@ builder.Services.AddRateLimiter(options =>
             });
     });
 
-    options.AddPolicy("otp-verify-limit", context =>
+    options.AddPolicy(RateLimitPolicies.OtpVerifyLimit, context =>
         RateLimitPartition.GetFixedWindowLimiter(
             partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             factory: _ => new FixedWindowRateLimiterOptions
@@ -132,7 +147,7 @@ builder.Services.AddRateLimiter(options =>
             }));
 
     // Dedicated stricter rate limit for ChangePassword: 3 attempts per 10 minutes per IP
-    options.AddPolicy("change-password-limit", context =>
+    options.AddPolicy(RateLimitPolicies.ChangePasswordLimit, context =>
     RateLimitPartition.GetFixedWindowLimiter(
         partitionKey: context.User.Identity?.Name ?? context.Connection.RemoteIpAddress?.ToString(),
         factory: _ => new FixedWindowRateLimiterOptions
@@ -143,13 +158,25 @@ builder.Services.AddRateLimiter(options =>
         }));
 
     // Rate limit for STT (audio-to-sign) requests: 10 per minute per IP
-    options.AddPolicy("stt-limit", context =>
+    options.AddPolicy(RateLimitPolicies.SttLimit, context =>
         RateLimitPartition.GetFixedWindowLimiter(
             partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             factory: _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 10,
                 Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst
+            }));
+
+    // Rate limit for media serving: 60 requests per minute per IP
+    options.AddPolicy(RateLimitPolicies.MediaLimit, context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = MediaDefaults.MediaRateLimitPermits,
+                Window = TimeSpan.FromMinutes(MediaDefaults.MediaRateLimitWindowMinutes),
                 QueueLimit = 0,
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst
             }));
@@ -163,7 +190,10 @@ builder.Services.AddDbContext<S2SIdentityDbContext>(option =>
 });
 
 builder.Services.AddKeyedScoped<IDataInitializer, IdentityDataInitializer>("Identity");
-builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
+builder.Services.AddScoped<ITokenService, TokenService>();
+builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IOtpService, OtpService>();
+builder.Services.AddScoped<IProfileService, ProfileService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddHttpClient<ISpeechToTextService, GroqSpeechToTextService>(client =>
@@ -174,6 +204,11 @@ builder.Services.AddHttpClient<ISpeechToTextService, GroqSpeechToTextService>(cl
 builder.Services.AddSingleton<ITextToSpeechService, GoogleTextToSpeechService>();
 builder.Services.AddHttpClient<IAiTranslationService, AiTranslationService>();
 builder.Services.AddHostedService<MediaCleanupService>();
+builder.Services.AddHostedService<UnverifiedAccountCleanupService>();
+
+// Health checks with database connectivity verification
+builder.Services.AddHealthChecks()
+    .AddCheck<DatabaseHealthCheck>("database", tags: ["db"]);
 
 // AutoMapper Configuration
 //builder.Services.AddAutoMapper(typeof(MappingProfiles).Assembly);
@@ -185,9 +220,9 @@ builder.Services.AddIdentityCore<ApplicationUser>(options =>
     options.Password.RequireLowercase = true;
     options.Password.RequireUppercase = true;
     options.Password.RequireNonAlphanumeric = true;
-    options.Password.RequiredLength = 8;
-    options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
-    options.Lockout.MaxFailedAccessAttempts = 3;
+    options.Password.RequiredLength = AuthDefaults.PasswordMinLength;
+    options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(AuthDefaults.AccountLockoutMinutes);
+    options.Lockout.MaxFailedAccessAttempts = AuthDefaults.MaxFailedAccessAttempts;
     options.Lockout.AllowedForNewUsers = true;
     options.User.RequireUniqueEmail = true;
 })
@@ -330,12 +365,34 @@ app.UseSerilogRequestLogging();
 app.UseForwardedHeaders();
 app.UseHttpsRedirection();
 app.UseStaticFiles();
-app.UseCors("AllowFrontend");
+app.UseMiddleware<GlobalExceptionMiddleware>();
+app.UseCors(CorsDefaults.AllowFrontendPolicy);
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+app.MapHealthChecks("/healthz", new HealthCheckOptions
+{
+    ResponseWriter = async (context, report) =>
+    {
+        context.Response.ContentType = "application/json";
+        var result = new
+        {
+            status = report.Status.ToString(),
+            totalDuration = report.TotalDuration.ToString(),
+            checks = report.Entries.Select(e => new
+            {
+                name = e.Key,
+                status = e.Value.Status.ToString(),
+                duration = e.Value.Duration.ToString(),
+                description = e.Value.Description
+            })
+        };
+        await context.Response.WriteAsJsonAsync(result);
+    }
+});
 
 app.Run();
 

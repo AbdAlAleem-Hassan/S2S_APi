@@ -364,3 +364,6 @@ FodyWeavers.xsd
 
 # Firebase Credentials (Secret)
 firebase-adminsdk.json
+
+# Media files (generated at runtime)
+Sehety.Web/wwwroot/media/

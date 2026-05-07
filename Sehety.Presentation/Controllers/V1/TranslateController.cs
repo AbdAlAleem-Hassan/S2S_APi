@@ -1,4 +1,4 @@
-﻿using Asp.Versioning;
+using Asp.Versioning;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -9,7 +9,9 @@ using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.Logging;
 using S2S.ServicesAbstraction;
 using S2S.Shared.CommonResult;
+using S2S.Shared.Constants;
 using S2S.Shared.DataTransferObjects.V1.TranslationDTOs;
+using S2S.Shared.Helpers;
 using S2S.Shared.Security;
 using System.Text.Json;
 
@@ -25,8 +27,8 @@ namespace S2S.Presentation.Controllers.V1
 		IWebHostEnvironment _env,
 		ILogger<TranslateController> _logger) : ApiBaseController
 	{
-		private const long MaxVideoSizeBytes = 50L * 1024 * 1024;
-		private const long MaxAudioSizeBytes = 20L * 1024 * 1024;
+		private const long MaxVideoSizeBytes = MediaDefaults.MaxVideoSizeBytes;
+		private const long MaxAudioSizeBytes = MediaDefaults.MaxAudioSizeBytes;
 
 		private static readonly HashSet<string> AllowedVideoExtensions = new(StringComparer.OrdinalIgnoreCase)
 		{
@@ -40,11 +42,7 @@ namespace S2S.Presentation.Controllers.V1
 
 		private string? RewriteUrl(string fileName, string type)
 		{
-			if (string.IsNullOrEmpty(fileName)) return null;
-
-			var request = HttpContext.Request;
-			var baseUrl = $"{request.Scheme}://{request.Host}{request.PathBase}";
-			return $"{baseUrl}/api/v1/media/{type}/{fileName}";
+			return UrlRewriter.BuildMediaUrl(HttpContext, fileName, type);
 		}
 
 		// 💡 الدالة السحرية دي بتاخد اللينك من الـ AI، تعرف نوعه، تحمله، وترجعلك اللينك الجديد!
@@ -133,6 +131,7 @@ namespace S2S.Presentation.Controllers.V1
 
 		[HttpPost("sign-to-text")]
 		[Consumes("multipart/form-data")]
+		[EnableRateLimiting("stt-limit")]
 		[RequestSizeLimit(MaxVideoSizeBytes)]
 		[ProducesResponseType<SignToTextResponseDTO>(StatusCodes.Status200OK)]
 		[ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
@@ -323,6 +322,7 @@ namespace S2S.Presentation.Controllers.V1
 
 		[HttpGet("/api/v{version:apiVersion}/media/{type}/{fileName}")]
 		[AllowAnonymous]
+		[EnableRateLimiting(RateLimitPolicies.MediaLimit)]
 		public IActionResult GetMedia(string type, string fileName)
 		{
 			var webRootPath = _env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
