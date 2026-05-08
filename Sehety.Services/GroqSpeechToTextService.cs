@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using S2S.ServicesAbstraction;
 using S2S.Shared.CommonResult;
+using S2S.Shared.Constants;
 using S2S.Shared.Security;
 using System.Net.Http.Headers;
 
@@ -10,7 +11,6 @@ namespace S2S.Services
 {
 	public class GroqSpeechToTextService : ISpeechToTextService
 	{
-		private const long MaxAudioSizeBytes = 20 * 1024 * 1024;
 		private const string DefaultModel = "whisper-large-v3";
 		private const string DefaultLanguage = "ar";
 		private const string DefaultEndpoint = "https://api.groq.com/openai/v1/audio/transcriptions";
@@ -18,6 +18,12 @@ namespace S2S.Services
 		private static readonly HashSet<string> AllowedExtensions = new(StringComparer.OrdinalIgnoreCase)
 		{
 			".mp3", ".wav", ".m4a", ".ogg", ".webm", ".mp4", ".mpeg"
+		};
+
+		private static readonly HashSet<string> AllowedContentTypes = new(StringComparer.OrdinalIgnoreCase)
+		{
+			"audio/mpeg", "audio/wav", "audio/x-wav", "audio/mp4", "audio/m4a",
+			"audio/x-m4a", "audio/ogg", "audio/webm", "video/mp4", "video/webm"
 		};
 
 		private readonly HttpClient _client;
@@ -40,15 +46,20 @@ namespace S2S.Services
 				return Error.Validation("Audio.Empty", "Audio file is required.");
 			}
 
-			if (audio.Length > MaxAudioSizeBytes)
+			if (audio.Length > MediaDefaults.MaxAudioSizeBytes)
 			{
-				return Error.Validation("Audio.TooLarge", "Audio file exceeds 20 MB.");
+				return Error.Validation("Audio.TooLarge", $"Audio file exceeds {MediaDefaults.MaxAudioSizeBytes / (1024 * 1024)} MB.");
 			}
 
 			var extension = Path.GetExtension(audio.FileName);
 			if (string.IsNullOrWhiteSpace(extension) || !AllowedExtensions.Contains(extension))
 			{
 				return Error.Validation("Audio.InvalidFormat", "Unsupported audio format.");
+			}
+
+			if (!string.IsNullOrWhiteSpace(audio.ContentType) && !AllowedContentTypes.Contains(audio.ContentType))
+			{
+				return Error.Validation("Audio.InvalidContentType", "Unsupported audio content type.");
 			}
 
 			if (!FileSignatureValidator.IsAllowedAudio(audio, extension))

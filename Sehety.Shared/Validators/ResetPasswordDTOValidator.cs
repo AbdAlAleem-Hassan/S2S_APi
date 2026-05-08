@@ -1,4 +1,5 @@
 using FluentValidation;
+using S2S.Shared.Constants;
 using S2S.Shared.DataTransferObjects.V1.IdentityDTOs;
 
 namespace S2S.Shared.Validators
@@ -12,7 +13,8 @@ namespace S2S.Shared.Validators
 
             RuleFor(x => x.NewPassword)
                 .NotEmpty().WithMessage("New password is required.")
-                .MinimumLength(8).WithMessage("Password must be at least 8 characters long.")
+                .MinimumLength(AuthDefaults.PasswordMinLength).WithMessage($"Password must be at least {AuthDefaults.PasswordMinLength} characters long.")
+                .MaximumLength(ValidationDefaults.PasswordMaxLength).WithMessage($"Password cannot exceed {ValidationDefaults.PasswordMaxLength} characters.")
                 .Matches(@"[A-Z]").WithMessage("Password must contain at least one uppercase letter.")
                 .Matches(@"[a-z]").WithMessage("Password must contain at least one lowercase letter.")
                 .Matches(@"[0-9]").WithMessage("Password must contain at least one number.")

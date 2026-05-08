@@ -192,5 +192,103 @@ namespace S2S.Services
             string body = GetEmailTemplate(content);
             await SendEmailAsync(to, subject, body);
         }
+
+        public async Task SendEmailChangeOtpAsync(string to, string otp, string displayName)
+        {
+            string subject = "Verify Your New Email - S2S";
+
+            string content = $@"
+                <h2 style='margin: 0 0 20px 0; color: {SecondaryColor}; font-size: 24px; text-align: center;'>
+                    Verify Your New Email ✉️
+                </h2>
+                <p style='margin: 0 0 25px 0; color: {TextColor}; font-size: 16px; line-height: 1.6; text-align: center;'>
+                    Hi <strong>{displayName}</strong>, you requested to change your S2S account email to this address. Please use the verification code below to confirm:
+                </p>
+                <div style='background: linear-gradient(135deg, {PrimaryColor} 0%, #FF7B5C 100%); padding: 25px; border-radius: 12px; text-align: center; margin: 0 0 25px 0;'>
+                    <span style='font-size: 36px; font-weight: bold; letter-spacing: 8px; color: #ffffff;'>{otp}</span>
+                </div>
+                <p style='margin: 0 0 10px 0; color: {MutedText}; font-size: 14px; text-align: center;'>
+                    ⏰ This code will expire in <strong>10 minutes</strong>.
+                </p>
+                <p style='margin: 0 0 10px 0; color: {MutedText}; font-size: 13px; text-align: center;'>
+                    You have a maximum of <strong>3 attempts</strong> before the code is invalidated.
+                </p>
+                <p style='margin: 0; color: {MutedText}; font-size: 13px; text-align: center;'>
+                    If you didn't request this change, you can safely ignore this email.
+                </p>";
+
+            string body = GetEmailTemplate(content);
+            await SendEmailAsync(to, subject, body);
+        }
+
+        public async Task SendEmailChangedNotificationAsync(string oldEmail, string newEmail, string displayName)
+        {
+            var changedAt = DateTime.UtcNow.ToString("MMMM dd, yyyy 'at' HH:mm 'UTC'");
+
+            // --- Email to OLD address (security alert) ---
+            string oldEmailSubject = "Your Email Address Has Been Changed - S2S";
+            string oldEmailContent = $@"
+                <h2 style='margin: 0 0 20px 0; color: {SecondaryColor}; font-size: 24px; text-align: center;'>
+                    Email Address Changed ✉️
+                </h2>
+                <p style='margin: 0 0 25px 0; color: {TextColor}; font-size: 16px; line-height: 1.6; text-align: center;'>
+                    Hi <strong>{displayName}</strong>, the email address associated with your S2S account was recently changed.
+                </p>
+
+                <div style='background: linear-gradient(135deg, {SecondaryColor} 0%, #2D4A6F 100%); padding: 20px; border-radius: 12px; text-align: center; margin: 0 0 25px 0;'>
+                    <p style='margin: 0; color: rgba(255,255,255,0.8); font-size: 13px;'>Changed on</p>
+                    <p style='margin: 6px 0 0 0; color: #ffffff; font-size: 16px; font-weight: bold;'>⏱ {changedAt}</p>
+                </div>
+
+                <div style='background-color: {LightBg}; padding: 16px 20px; border-radius: 8px; margin: 0 0 25px 0;'>
+                    <p style='margin: 0 0 4px 0; color: {MutedText}; font-size: 13px;'>Old Email</p>
+                    <p style='margin: 0 0 12px 0; color: {TextColor}; font-size: 15px; font-weight: bold;'>{oldEmail}</p>
+                    <p style='margin: 0 0 4px 0; color: {MutedText}; font-size: 13px;'>New Email</p>
+                    <p style='margin: 0; color: {PrimaryColor}; font-size: 15px; font-weight: bold;'>{newEmail}</p>
+                </div>
+
+                <div style='background-color: #FFF3F0; border-left: 4px solid {PrimaryColor}; padding: 16px 20px; border-radius: 8px; margin: 0 0 25px 0;'>
+                    <p style='margin: 0 0 8px 0; color: {PrimaryColor}; font-weight: bold; font-size: 14px;'>⚠️ Didn't make this change?</p>
+                    <p style='margin: 0; color: {TextColor}; font-size: 14px; line-height: 1.6;'>
+                        If you did not make this change, your account may be compromised. 
+                        Please contact our support team immediately.
+                    </p>
+                </div>
+
+                <p style='margin: 0; color: {MutedText}; font-size: 13px; text-align: center;'>
+                    All active sessions have been signed out for your security.
+                </p>";
+
+            // --- Email to NEW address (welcome/confirmation) ---
+            string newEmailSubject = "Email Address Confirmed - S2S";
+            string newEmailContent = $@"
+                <h2 style='margin: 0 0 20px 0; color: {SecondaryColor}; font-size: 24px; text-align: center;'>
+                    Email Updated Successfully ✅
+                </h2>
+                <p style='margin: 0 0 25px 0; color: {TextColor}; font-size: 16px; line-height: 1.6; text-align: center;'>
+                    Hi <strong>{displayName}</strong>, your S2S account email has been successfully changed to this address.
+                </p>
+
+                <div style='background: linear-gradient(135deg, {PrimaryColor} 0%, #FF7B5C 100%); padding: 20px; border-radius: 12px; text-align: center; margin: 0 0 25px 0;'>
+                    <p style='margin: 0; color: rgba(255,255,255,0.8); font-size: 13px;'>Your new email</p>
+                    <p style='margin: 6px 0 0 0; color: #ffffff; font-size: 18px; font-weight: bold;'>{newEmail}</p>
+                </div>
+
+                <p style='margin: 0 0 15px 0; color: {TextColor}; font-size: 14px; text-align: center; line-height: 1.6;'>
+                    Please use this email address to log in from now on. Your previous sessions have been signed out.
+                </p>
+
+                <p style='margin: 0; color: {MutedText}; font-size: 13px; text-align: center;'>
+                    If you did not make this change, please contact our support team immediately.
+                </p>";
+
+            string oldBody = GetEmailTemplate(oldEmailContent);
+            string newBody = GetEmailTemplate(newEmailContent);
+
+            await Task.WhenAll(
+                SendEmailAsync(oldEmail, oldEmailSubject, oldBody),
+                SendEmailAsync(newEmail, newEmailSubject, newBody)
+            );
+        }
     }
 }

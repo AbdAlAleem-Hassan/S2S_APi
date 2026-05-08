@@ -1,4 +1,5 @@
 using FluentValidation;
+using S2S.Shared.Constants;
 using S2S.Shared.DataTransferObjects.V1.IdentityDTOs;
 
 namespace S2S.Shared.Validators
@@ -9,11 +10,11 @@ namespace S2S.Shared.Validators
         {
             RuleFor(x => x.Email)
                 .NotEmpty().WithMessage("Email is required.")
-                .MaximumLength(256).WithMessage("Email cannot exceed 256 characters.")
+                .MaximumLength(ValidationDefaults.MaxEmailLength).WithMessage($"Email cannot exceed {ValidationDefaults.MaxEmailLength} characters.")
                 .EmailAddress().WithMessage("Please enter a valid email address.")
                 .Matches(@"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
                     .WithMessage("Please enter a valid email format.")
-                .Matches(@"^[^<>&'""\\/;`]*$")
+                .Matches(@"^[^<>&'""\\\/;`]*$")
                     .WithMessage("Email contains forbidden characters.");
         }
     }
