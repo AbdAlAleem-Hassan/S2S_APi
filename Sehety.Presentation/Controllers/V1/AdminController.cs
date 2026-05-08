@@ -1,4 +1,4 @@
-﻿
+
 
 using Asp.Versioning;
 using Microsoft.AspNetCore.Authorization;
@@ -37,6 +37,12 @@ namespace S2S.Presentation.Controllers.V1
 		[EndpointDescription("Toggles the lock status of a user by their ID.")]
 		public async Task<ActionResult<string>> ToggleLockStatus(string id)
 		{
+			var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+			if (string.Equals(id, currentUserId, StringComparison.OrdinalIgnoreCase))
+			{
+				return BadRequest(new { error = "You cannot lock your own account." });
+			}
+
 			var result = await _adminService.ToggleUserLockStatusAsync(id);
 
 			if (result.IsSuccess)

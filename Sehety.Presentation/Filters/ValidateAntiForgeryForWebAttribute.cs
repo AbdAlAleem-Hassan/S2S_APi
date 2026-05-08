@@ -40,12 +40,11 @@ namespace S2S.Presentation.Filters
                 {
                     await antiforgery.ValidateRequestAsync(httpContext);
                 }
-                catch (AntiforgeryValidationException ex)
+                catch (AntiforgeryValidationException)
                 {
                     context.Result = new BadRequestObjectResult(new
                     {
-                        error = "anti-forgery validation failed",
-                        detail = ex.Message
+                        error = "Anti-forgery validation failed."
                     });
                     return;
                 }

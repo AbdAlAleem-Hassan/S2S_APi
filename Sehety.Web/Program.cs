@@ -101,7 +101,8 @@ builder.Services.AddCors(options =>
                     "http://localhost:3000",
                     "http://localhost:5173")
                   .AllowAnyHeader()
-                  .AllowAnyMethod();
+                  .AllowAnyMethod()
+                  .AllowCredentials();
         });
 });
 
@@ -286,6 +287,51 @@ builder.Services.AddAuthentication(configureOptions =>
         ValidAudience = builder.Configuration["JWTOptions:Audience"],
         IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["JWTOptions:SecretKey"]!)),
     };
+
+    // Return structured JSON for 401/403 instead of empty responses.
+    // Includes loginUrl + validated returnUrl for safe client-side redirect.
+    options.Events = new JwtBearerEvents
+    {
+        OnChallenge = async context =>
+        {
+            // Suppress default redirect behavior
+            context.HandleResponse();
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            context.Response.ContentType = "application/json";
+
+            var clientUrl = context.HttpContext.RequestServices
+                .GetRequiredService<IConfiguration>()["AppUrls:ClientUrl"] ?? "https://s2sai.online";
+
+            // Build safe returnUrl from the original request path
+            var requestPath = context.Request.Path + context.Request.QueryString;
+            var safeReturnUrl = S2S.Shared.Security.RedirectUrlValidator.Validate(requestPath);
+
+            var response = new
+            {
+                status = 401,
+                title = "Authentication required",
+                detail = "You must be logged in to access this resource.",
+                loginUrl = $"{clientUrl}/login",
+                returnUrl = safeReturnUrl
+            };
+
+            await context.Response.WriteAsJsonAsync(response);
+        },
+        OnForbidden = async context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            context.Response.ContentType = "application/json";
+
+            var response = new
+            {
+                status = 403,
+                title = "Access denied",
+                detail = "You do not have permission to access this resource."
+            };
+
+            await context.Response.WriteAsJsonAsync(response);
+        }
+    };
 });
 
 builder.Services.AddApiVersioning(options =>
@@ -368,7 +414,7 @@ await app.SeedIdentityDatabase();
 #endregion
 
 // Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment() || builder.Configuration.GetValue("EnableSwagger", true))
+if (app.Environment.IsDevelopment() || builder.Configuration.GetValue("EnableSwagger", false))
 {
     app.UseSwagger();
     app.UseSwaggerUI();
@@ -377,7 +423,33 @@ if (app.Environment.IsDevelopment() || builder.Configuration.GetValue("EnableSwa
 app.UseSerilogRequestLogging();
 
 app.UseForwardedHeaders();
-app.UseHttpsRedirection();
+
+// Security headers — prevent common web attacks
+app.Use(async (context, next) =>
+{
+    var headers = context.Response.Headers;
+    headers["X-Content-Type-Options"] = "nosniff";
+    headers["X-Frame-Options"] = "DENY";
+    headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+    headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()";
+    headers["X-Permitted-Cross-Domain-Policies"] = "none";
+    if (context.Request.IsHttps || string.Equals(context.Request.Headers["X-Forwarded-Proto"], "https", StringComparison.OrdinalIgnoreCase))
+    {
+        headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains";
+    }
+
+    // Prevent caching of API responses (tokens, user data, etc.)
+    // Static files and media are handled separately by UseStaticFiles/GetMedia
+    var path = context.Request.Path.Value ?? "";
+    if (path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase))
+    {
+        headers["Cache-Control"] = "no-store, no-cache, must-revalidate";
+        headers["Pragma"] = "no-cache";
+    }
+
+    await next();
+});
+
 app.UseStaticFiles();
 app.UseMiddleware<GlobalExceptionMiddleware>();
 app.UseCors(CorsDefaults.AllowFrontendPolicy);

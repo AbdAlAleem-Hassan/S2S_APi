@@ -196,7 +196,8 @@ namespace S2S.Presentation.Controllers.V1
 			}
 			catch (Exception ex)
 			{
-				return BadRequest(new { error = "Translation Failed", details = ex.Message });
+				_logger.LogError(ex, "Failed to parse sign-to-text response.");
+				return StatusCode(500, new { error = "Translation processing failed. Please try again." });
 			}
 		}
 
@@ -224,6 +225,7 @@ namespace S2S.Presentation.Controllers.V1
 		}
 
 		[HttpPost("text-to-sign")]
+		[EnableRateLimiting("stt-limit")]
 		[Consumes("multipart/form-data")]
 		[ProducesResponseType<ToSignResponseDTO>(StatusCodes.Status200OK)]
 		[ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
@@ -263,7 +265,8 @@ namespace S2S.Presentation.Controllers.V1
 			}
 			catch (Exception ex)
 			{
-				return StatusCode(500, new { error = "خطأ في تحويل البيانات", details = ex.Message });
+				_logger.LogError(ex, "Failed to parse text-to-sign response.");
+				return StatusCode(500, new { error = "Translation processing failed. Please try again." });
 			}
 		}
 
@@ -318,7 +321,8 @@ namespace S2S.Presentation.Controllers.V1
 			}
 			catch (Exception ex)
 			{
-				return StatusCode(500, new { error = ex.Message });
+				_logger.LogError(ex, "Failed to parse audio-to-sign response.");
+				return StatusCode(500, new { error = "Translation processing failed. Please try again." });
 			}
 		}
 
@@ -381,9 +385,15 @@ namespace S2S.Presentation.Controllers.V1
 				contentType = "application/octet-stream";
 			}
 
-			// Profile images: display inline in browser; other types: force download
+			// Profile images: GUID filenames are immutable — safe to cache long-term
+			// Other media (audio/video): shorter cache since URLs may be reused
 			if (string.Equals(safeType, "profile", StringComparison.OrdinalIgnoreCase))
+			{
+				Response.Headers["Cache-Control"] = "public, max-age=604800, immutable"; // 7 days
 				return PhysicalFile(filePath, contentType);
+			}
+
+			Response.Headers["Cache-Control"] = "public, max-age=3600"; // 1 hour
 			return PhysicalFile(filePath, contentType, safeName);
 		}
 	}
