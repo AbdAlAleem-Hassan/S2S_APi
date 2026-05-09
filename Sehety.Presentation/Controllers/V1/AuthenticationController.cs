@@ -15,6 +15,7 @@ using S2S.Shared.DataTransferObjects.V1.GoogleIdentity;
 using S2S.Shared.DataTransferObjects.V1.IdentityDTOs;
 using S2S.Shared.Helpers;
 using System.ComponentModel.DataAnnotations;
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 
 namespace S2S.Presentation.Controllers.V1
@@ -188,7 +189,7 @@ namespace S2S.Presentation.Controllers.V1
         public async Task<ActionResult> ChangePassword([FromBody] ChangePasswordDTO changePasswordDTO)
         {
             // User Id comes from the JWT claim (cannot be tampered with)
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var userId = User.FindFirstValue(JwtRegisteredClaimNames.Sub);
 
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(new { message = "Invalid token or user not authenticated." });
@@ -247,7 +248,7 @@ namespace S2S.Presentation.Controllers.V1
 		[HttpGet("CurrentUser")]
 		public async Task<ActionResult<UserDTO>> GetCurrentUser()
 		{
-			var Email = User.FindFirstValue(ClaimTypes.Email);
+			var Email = User.FindFirstValue(JwtRegisteredClaimNames.Email);
 			var result = await _profileService.GetUserByEmailAsync(Email!);
 			if (result.IsSuccess)
 				return Ok(WithProfileUrl(result.Value));
@@ -259,7 +260,7 @@ namespace S2S.Presentation.Controllers.V1
 		public async Task<ActionResult> UpdateFcmToken([FromBody] UpdateFcmTokenDTO updateFcmTokenDTO)
 		{
 			// بنجيب إيميل اليوزر من التوكن بتاعه
-			var email = User.FindFirstValue(ClaimTypes.Email);
+			var email = User.FindFirstValue(JwtRegisteredClaimNames.Email);
 
 			if (string.IsNullOrEmpty(email))
 				return Unauthorized(new { message = "Invalid token or user not logged in." });
@@ -277,7 +278,7 @@ namespace S2S.Presentation.Controllers.V1
             [FromBody] UpdateProfileDTO updateProfileDTO,
             CancellationToken cancellationToken)
         {
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var userId = User.FindFirstValue(JwtRegisteredClaimNames.Sub);
             if (string.IsNullOrEmpty(userId))
             {
                 return Unauthorized(new { message = "Invalid token or user not authenticated." });
@@ -299,7 +300,7 @@ namespace S2S.Presentation.Controllers.V1
         [EnableRateLimiting(RateLimitPolicies.OtpRequestLimit)]
         public async Task<IActionResult> RequestEmailChange([FromBody] ChangeEmailDTO changeEmailDTO)
         {
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var userId = User.FindFirstValue(JwtRegisteredClaimNames.Sub);
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(new { message = "Invalid token or user not authenticated." });
 
@@ -315,7 +316,7 @@ namespace S2S.Presentation.Controllers.V1
         [EnableRateLimiting(RateLimitPolicies.OtpVerifyLimit)]
         public async Task<IActionResult> ConfirmEmailChange([FromBody] ConfirmEmailChangeDTO confirmEmailChangeDTO)
         {
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var userId = User.FindFirstValue(JwtRegisteredClaimNames.Sub);
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(new { message = "Invalid token or user not authenticated." });
 
@@ -332,7 +333,7 @@ namespace S2S.Presentation.Controllers.V1
         [RequestSizeLimit(MediaDefaults.MaxProfileImageSizeBytes)]
         public async Task<ActionResult> UploadProfileImage(IFormFile image)
         {
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var userId = User.FindFirstValue(JwtRegisteredClaimNames.Sub);
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(new { message = "Invalid token or user not authenticated." });
 

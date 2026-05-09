@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
+using System.IdentityModel.Tokens.Jwt;
 using S2S.Domain.Contracts;
 using S2S.Domain.Entities.IdentityModule;
 using S2S.Persistence.IdentityData.DataSeed;
@@ -278,14 +279,27 @@ builder.Services.AddAuthentication(configureOptions =>
     configureOptions.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
 }).AddJwtBearer(options =>
 {
+    // Prevent ASP.NET from remapping JWT claim names to schema URLs
+    // e.g. "sub" stays "sub" (not remapped to "http://schemas.xmlsoap.org/...")
+    options.MapInboundClaims = false;
+
     options.TokenValidationParameters = new TokenValidationParameters()
     {
         ValidateIssuer = true,
         ValidateAudience = true,
         ValidateLifetime = true,
+        ValidateIssuerSigningKey = true,
         ValidIssuer = builder.Configuration["JWTOptions:Issuer"],
         ValidAudience = builder.Configuration["JWTOptions:Audience"],
         IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["JWTOptions:SecretKey"]!)),
+
+        // Reduce clock skew from default 5 min to 30 sec
+        // Expired tokens are only valid 30 extra seconds (not 5 min)
+        ClockSkew = TimeSpan.FromSeconds(30),
+
+        // Map short claim names since we disabled inbound mapping
+        NameClaimType = JwtRegisteredClaimNames.Name,
+        RoleClaimType = "role"
     };
 
     // Return structured JSON for 401/403 instead of empty responses.

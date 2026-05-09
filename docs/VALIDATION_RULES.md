@@ -910,6 +910,46 @@ All API error responses follow these rules:
 | Development | ✅ Always |
 | Production | ❌ Off by default (set `EnableSwagger: true` to override) |
 
+> Endpoints with `[ValidateAntiForgeryForWeb]` automatically show `X-XSRF-TOKEN` header in Swagger UI via `CsrfTokenOperationFilter`.
+
+### JWT Token Hardening
+
+#### Token Claims (Minimal, No Duplicates)
+
+| Claim | Name in Token | Source |
+|---|---|---|
+| User ID | `sub` | `user.Id` |
+| Email | `email` | `user.Email` |
+| Username | `name` | `user.UserName` |
+| Token ID | `jti` | `Guid.NewGuid()` |
+| Role(s) | `role` | `UserManager.GetRolesAsync` |
+
+> **No schema URLs.** We use short JWT claim names (`sub`, `email`, `role`) instead of `http://schemas.xmlsoap.org/...` URIs. This reduces token size and prevents .NET framework leakage.
+
+#### Validation Configuration
+
+| Setting | Value | Why |
+|---|---|---|
+| `ValidateIssuer` | `true` | Ensures token was issued by our server |
+| `ValidateAudience` | `true` | Ensures token is intended for our API |
+| `ValidateLifetime` | `true` | Rejects expired tokens |
+| `ValidateIssuerSigningKey` | `true` | Verifies the signing key |
+| `ClockSkew` | `30 seconds` | Default was 5 min — expired tokens valid only 30s extra |
+| `MapInboundClaims` | `false` | Prevents ASP.NET from remapping `sub` → schema URL |
+| `RoleClaimType` | `"role"` | Maps `[Authorize(Roles)]` to short `role` claim |
+| `NameClaimType` | `JwtRegisteredClaimNames.Name` | Maps `User.Identity.Name` to `name` claim |
+
+#### Claim Reading (Controllers)
+
+```csharp
+// ✅ CORRECT — using JWT standard names
+var userId = User.FindFirstValue(JwtRegisteredClaimNames.Sub);
+var email = User.FindFirstValue(JwtRegisteredClaimNames.Email);
+
+// ❌ WRONG — would return null with MapInboundClaims=false
+var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+```
+
 ### Reverse Proxy (Nginx) Requirements
 
 The app runs behind Nginx with TLS termination. Required Nginx headers:
