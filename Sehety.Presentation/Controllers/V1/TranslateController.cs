@@ -394,6 +394,15 @@ namespace S2S.Presentation.Controllers.V1
 			}
 
 			Response.Headers["Cache-Control"] = "public, max-age=3600"; // 1 hour
+
+			// Audio & Video: play inline in browser (no download prompt)
+			// Pose & other files: force download since they're not browser-playable
+			if (string.Equals(safeType, "audio", StringComparison.OrdinalIgnoreCase) ||
+				string.Equals(safeType, "video", StringComparison.OrdinalIgnoreCase))
+			{
+				return PhysicalFile(filePath, contentType);
+			}
+
 			return PhysicalFile(filePath, contentType, safeName);
 		}
 	}
