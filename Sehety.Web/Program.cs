@@ -212,6 +212,7 @@ builder.Services.AddScoped<IProfileService, ProfileService>();
 builder.Services.AddScoped<IAdminService, AdminService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddSingleton<GroqApiKeyPool>();
 builder.Services.AddHttpClient<ISpeechToTextService, GroqSpeechToTextService>(client =>
 {
     var timeoutSeconds = builder.Configuration.GetValue("SttSettings:TimeoutSeconds", 30);
