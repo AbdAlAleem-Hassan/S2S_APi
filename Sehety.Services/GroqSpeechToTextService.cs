@@ -166,7 +166,7 @@ namespace S2S.Services
         {
             try
             {
-                using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
+                var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
 
                 var form = new MultipartFormDataContent();
@@ -175,7 +175,8 @@ namespace S2S.Services
                 // verbose_json returns segments with no_speech_prob for silence detection
                 form.Add(new StringContent("verbose_json"), "response_format");
 
-                var fileContent = new StreamContent(audio.OpenReadStream());
+                var stream = audio.OpenReadStream();
+                var fileContent = new StreamContent(stream);
                 if (!string.IsNullOrWhiteSpace(audio.ContentType))
                 {
                     fileContent.Headers.ContentType = new MediaTypeHeaderValue(audio.ContentType);
@@ -187,8 +188,7 @@ namespace S2S.Services
                 using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 timeoutCts.CancelAfter(TimeSpan.FromSeconds(_timeoutSeconds));
 
-                var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token);
-                return response;
+                return await _client.SendAsync(request, HttpCompletionOption.ResponseContentRead, timeoutCts.Token);
             }
             catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
