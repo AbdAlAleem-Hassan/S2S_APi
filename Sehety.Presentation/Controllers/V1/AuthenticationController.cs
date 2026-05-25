@@ -49,6 +49,7 @@ namespace S2S.Presentation.Controllers.V1
 
 		//POST baseUrl/api/Authentication/Login
 		[HttpPost("Login")]
+		[AllowAnonymous]
 		public async Task<ActionResult<UserDTO>> Login(LoginDTO loginDTO)
 		{
 			var result = await _authService.LoginAsync(loginDTO);
@@ -77,6 +78,7 @@ namespace S2S.Presentation.Controllers.V1
 		*/
 
 		[HttpPost("google-login")]
+		[AllowAnonymous]
 		public async Task<ActionResult<UserDTO>> GoogleLogin([FromBody] FirebaseLoginDTO firebaseLoginDTO)
 		{
 			var result = await _authService.LoginWithFirebaseAsync(firebaseLoginDTO);
@@ -94,6 +96,7 @@ namespace S2S.Presentation.Controllers.V1
 		//POST baseUrl/api/Authentication/Register
         [EnableRateLimiting(RateLimitPolicies.OtpRequestLimit)]
 		[HttpPost("Register")]
+		[AllowAnonymous]
 		public async Task<ActionResult> Register(RegisterDTO registerDTO)
 		{
 			var result = await _authService.RegisterAsync(registerDTO);
@@ -104,7 +107,8 @@ namespace S2S.Presentation.Controllers.V1
 
 [EnableRateLimiting(RateLimitPolicies.OtpVerifyLimit)]
         [HttpPost("VerifyEmail")]
-        public async Task<ActionResult<UserDTO>> VerifyEmail(VerifyOtpDTO verifyOtpDTO)
+		[AllowAnonymous]
+		public async Task<ActionResult<UserDTO>> VerifyEmail(VerifyOtpDTO verifyOtpDTO)
         {
             var result = await _otpService.VerifyOtpAsync(verifyOtpDTO);
             if (result.IsSuccess && result.Value.RefreshToken != null)
@@ -118,7 +122,8 @@ namespace S2S.Presentation.Controllers.V1
         
         [HttpPost("RefreshToken")]
         [ValidateAntiForgeryForWeb]
-        public async Task<ActionResult<UserDTO>> RefreshToken([FromBody] RefreshTokenDTO? refreshTokenDTO = null)
+		[AllowAnonymous]
+		public async Task<ActionResult<UserDTO>> RefreshToken([FromBody] RefreshTokenDTO? refreshTokenDTO = null)
         {
             var refreshToken = Request.Cookies[CookieNames.RefreshToken] ?? refreshTokenDTO?.RefreshToken;
             
@@ -151,7 +156,8 @@ namespace S2S.Presentation.Controllers.V1
 
         [EnableRateLimiting(RateLimitPolicies.OtpRequestLimit)]
         [HttpPost("ResendOtp")]
-        public async Task<ActionResult> ResendOtp([FromQuery] string email)
+		[AllowAnonymous]
+		public async Task<ActionResult> ResendOtp([FromQuery] string email)
         {
             if (string.IsNullOrWhiteSpace(email) || email.Length > 256 || !new EmailAddressAttribute().IsValid(email))
                 return BadRequest(new { error = "A valid email address is required." });
@@ -164,7 +170,8 @@ namespace S2S.Presentation.Controllers.V1
 
         [EnableRateLimiting(RateLimitPolicies.OtpRequestLimit)]
         [HttpPost("ForgotPassword")]
-        public async Task<ActionResult> ForgotPassword(ForgotPasswordDTO forgotPasswordDTO)
+		[AllowAnonymous]
+		public async Task<ActionResult> ForgotPassword(ForgotPasswordDTO forgotPasswordDTO)
         {
             var result = await _authService.ForgotPasswordAsync(forgotPasswordDTO);
             if (result.IsSuccess)
@@ -174,7 +181,8 @@ namespace S2S.Presentation.Controllers.V1
 
         [EnableRateLimiting(RateLimitPolicies.OtpVerifyLimit)]
         [HttpPost("ResetPassword")]
-        public async Task<ActionResult> ResetPassword(ResetPasswordDTO resetPasswordDTO)
+		[AllowAnonymous]
+		public async Task<ActionResult> ResetPassword(ResetPasswordDTO resetPasswordDTO)
         {
             var result = await _authService.ResetPasswordAsync(resetPasswordDTO);
             if (result.IsSuccess)

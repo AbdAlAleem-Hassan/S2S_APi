@@ -3,11 +3,13 @@ using FluentValidation;
 using FluentValidation.AspNetCore;
 using Google.Apis.Auth.OAuth2;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Authorization;
 using Microsoft.AspNetCore.Mvc.Versioning;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -62,9 +64,15 @@ builder.Host.UseSerilog((context, loggerConfiguration) =>
     loggerConfiguration.ReadFrom.Configuration(builder.Configuration));
 #endregion
 
-builder.Services.AddControllers().AddJsonOptions(options =>
+builder.Services.AddControllers(options =>
 {
-	// السطر ده هيخلي أي حقل قيمته Null ميظهرش في الـ JSON نهائياً
+	var policy = new AuthorizationPolicyBuilder()
+					.RequireAuthenticatedUser()
+					.Build();
+
+	options.Filters.Add(new AuthorizeFilter(policy));
+}).AddJsonOptions(options =>
+{
 	options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
 });
 
@@ -286,6 +294,24 @@ builder.Services.AddAuthentication(configureOptions =>
         ValidAudience = builder.Configuration["JWTOptions:Audience"],
         IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["JWTOptions:SecretKey"]!)),
     };
+	options.Events = new JwtBearerEvents
+	{
+		OnChallenge = context =>
+		{
+			context.HandleResponse();
+
+			context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+			context.Response.ContentType = "application/json";
+
+			var result = System.Text.Json.JsonSerializer.Serialize(new
+			{
+				error = "Unauthorized",
+				message = "Please login to access this resource. Navigate to /api/v1/Auth/Login"
+			});
+
+			return context.Response.WriteAsync(result);
+		}
+	};
 });
 
 builder.Services.AddApiVersioning(options =>
