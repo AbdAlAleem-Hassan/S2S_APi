@@ -88,6 +88,13 @@ namespace S2S.Services
         {
             var normalizedEmail = registerDTO.Email.Trim().ToLowerInvariant();
 
+            // Block plus-addressing for all providers (e.g. user+tag@any.com)
+            if (S2S.Shared.Security.EmailNormalizer.ContainsPlus(normalizedEmail))
+            {
+                _logger.LogWarning("Registration failed: Email contains '+' addressing.");
+                return Error.Validation("Email.PlusNotAllowed", "Email addresses with '+' are not allowed.");
+            }
+
             if (registerDTO.UsesSignLanguage && !registerDTO.SignLanguage.HasValue)
             {
                 _logger.LogWarning("Registration failed: Sign language required but not provided.");
@@ -100,9 +107,25 @@ namespace S2S.Services
                 return Error.Validation("DuplicatePhoneNumber", "Phone number is already in use.");
             }
 
+            // Standard duplicate check (exact email match)
             if (await _userManager.Users.AnyAsync(u => u.NormalizedEmail == normalizedEmail.ToUpperInvariant()))
             {
                 _logger.LogWarning("Registration failed: Email already in use.");
+                return Error.Validation("DuplicateEmail", "Email is already in use.");
+            }
+
+            // Normalized duplicate check (Gmail dot trick / plus alias detection)
+            // e.g. "u.ser+tag@gmail.com" matches existing "user@gmail.com"
+            // Non-Gmail: only catches exact case-insensitive duplicates (no false positives)
+            var canonicalEmail = S2S.Shared.Security.EmailNormalizer.NormalizeForDuplicateCheck(normalizedEmail);
+            var allEmails = await _userManager.Users
+                .Select(u => u.Email)
+                .ToListAsync();
+
+            if (allEmails.Any(e => e != null &&
+                S2S.Shared.Security.EmailNormalizer.NormalizeForDuplicateCheck(e) == canonicalEmail))
+            {
+                _logger.LogWarning("Registration failed: Normalized email already in use. Canonical: {CanonicalEmail}", canonicalEmail);
                 return Error.Validation("DuplicateEmail", "Email is already in use.");
             }
 
@@ -177,10 +200,30 @@ namespace S2S.Services
                     return Error.Unauthorized("InvalidFirebaseToken", "Firebase token missing email.");
                 }
 
+                // Block plus-addressing for all providers
+                if (S2S.Shared.Security.EmailNormalizer.ContainsPlus(email))
+                {
+                    return Error.Validation("Email.PlusNotAllowed", "Email addresses with '+' are not allowed.");
+                }
+
                 var user = await _userManager.FindByEmailAsync(email);
 
                 if (user == null)
                 {
+                    // Normalized duplicate check before creating new account
+                    // Catches Gmail dot/plus aliases pointing to same mailbox
+                    var canonicalEmail = S2S.Shared.Security.EmailNormalizer.NormalizeForDuplicateCheck(email);
+                    var allEmails = await _userManager.Users
+                        .Select(u => u.Email)
+                        .ToListAsync();
+
+                    if (allEmails.Any(e => e != null &&
+                        S2S.Shared.Security.EmailNormalizer.NormalizeForDuplicateCheck(e) == canonicalEmail))
+                    {
+                        _logger.LogWarning("Firebase login blocked: Normalized email already in use. Email: {Email}", email);
+                        return Error.Validation("DuplicateEmail", "An account with this email already exists. Please login with your existing account.");
+                    }
+
                     _logger.LogInformation("New user registering via Firebase Admin. Email: {Email}", email);
 
                     user = new ApplicationUser

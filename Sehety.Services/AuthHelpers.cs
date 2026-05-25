@@ -38,27 +38,5 @@ namespace S2S.Services
             rng.GetBytes(randomNumber);
             return Convert.ToBase64String(randomNumber);
         }
-
-        public static string SanitizeInput(string input)
-        {
-            if (string.IsNullOrWhiteSpace(input))
-                return string.Empty;
-
-            var sanitized = input.Trim();
-
-            sanitized = sanitized
-                .Replace("<", "")
-                .Replace(">", "")
-                .Replace("\"", "")
-                .Replace("'", "")
-                .Replace("&", "")
-                .Replace(";", "")
-                .Replace("(", "")
-                .Replace(")", "")
-                .Replace("{", "")
-                .Replace("}", "");
-
-            return sanitized;
-        }
     }
 }
