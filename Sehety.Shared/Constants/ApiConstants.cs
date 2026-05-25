@@ -36,7 +36,7 @@ namespace S2S.Shared.Constants
     public static class MediaDefaults
     {
         public const long MaxVideoSizeBytes = 50L * 1024 * 1024;
-        public const long MaxAudioSizeBytes = 20L * 1024 * 1024;
+        public const long MaxAudioSizeBytes = 18L * 1024 * 1024;
         public const long MaxProfileImageSizeBytes = 5L * 1024 * 1024;
         public const int MediaRateLimitPermits = 60;
         public const int MediaRateLimitWindowMinutes = 1;
@@ -70,6 +70,6 @@ namespace S2S.Shared.Constants
         public const int MaxTranslationTextLength = 200;
 
         // Text-to-Speech
-        public const int MaxTtsTextLength = 2000;
+        public const int MaxTtsTextLength = 200;
     }
 }

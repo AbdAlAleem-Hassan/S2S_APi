@@ -81,27 +81,27 @@ namespace S2S.Services
 
         public async Task<string> CreateAccessTokenAsync(ApplicationUser user)
         {
+            // Use only standard JWT claim names — no ASP.NET schema URLs
+            // sub = user ID, email, name, jti, role (short names only)
             var claims = new List<Claim>()
             {
+                new Claim(JwtRegisteredClaimNames.Sub, user.Id),
                 new Claim(JwtRegisteredClaimNames.Email, user.Email!),
                 new Claim(JwtRegisteredClaimNames.Name, user.UserName!),
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-                new Claim(JwtRegisteredClaimNames.Sub, user.Id),
-                new Claim(ClaimTypes.NameIdentifier, user.Id),
-                new Claim(ClaimTypes.Email, user.Email!)
             };
 
             var roles = await _userManager.GetRolesAsync(user);
             foreach (var role in roles)
             {
-                claims.Add(new Claim(ClaimTypes.Role, role));
+                claims.Add(new Claim("role", role));
             }
 
             var secretKey = _configuration["JWTOptions:SecretKey"]!;
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-            var Token = new JwtSecurityToken(
+            var token = new JwtSecurityToken(
                 issuer: _configuration["JWTOptions:Issuer"],
                 audience: _configuration["JWTOptions:Audience"],
                 expires: DateTime.UtcNow.AddMinutes(int.Parse(_configuration["JWTOptions:AccessTokenExpiryInMinutes"] ?? AuthDefaults.AccessTokenExpiryMinutes.ToString())),
@@ -109,7 +109,7 @@ namespace S2S.Services
                 signingCredentials: creds
             );
 
-            return new JwtSecurityTokenHandler().WriteToken(Token);
+            return new JwtSecurityTokenHandler().WriteToken(token);
         }
 
         public async Task<UserDTO> MapToUserDTOAsync(ApplicationUser user, string? rawRefreshToken = null)

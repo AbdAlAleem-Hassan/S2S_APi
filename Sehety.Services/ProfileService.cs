@@ -49,7 +49,7 @@ namespace S2S.Services
             if (User is null)
             {
                 _logger.LogWarning("User retrieval failed: User lookup returned null.");
-                return Error.NotFound("User.NotFound", $"No User With Email {{{email}}} Was Exist");
+                return Error.NotFound("User.NotFound", "User not found.");
             }
             _logger.LogInformation("User retrieved successfully. UserId: {UserId}", User.Id);
             return await _tokenService.MapToUserDTOAsync(User);
@@ -248,14 +248,32 @@ namespace S2S.Services
                 return Error.Validation("InvalidCurrentPassword", "Current password is incorrect.");
             }
 
-            // 2. Check new email is different
+            // 2. Block plus-addressing for all providers
+            if (S2S.Shared.Security.EmailNormalizer.ContainsPlus(changeEmailDTO.NewEmail))
+                return Error.Validation("Email.PlusNotAllowed", "Email addresses with '+' are not allowed.");
+
+            // 3. Check new email is different
             if (string.Equals(user.Email, changeEmailDTO.NewEmail, StringComparison.OrdinalIgnoreCase))
                 return Error.Validation("Email.SameAsCurrent", "New email must be different from current email.");
 
-            // 3. Check new email is not taken
+            // 3. Check new email is not taken (exact match)
             var existingUser = await _userManager.FindByEmailAsync(changeEmailDTO.NewEmail);
             if (existingUser != null)
                 return Error.Validation("DuplicateEmail", "Email is already in use.");
+
+            // 4. Normalized duplicate check (Gmail dot trick / plus alias detection)
+            var canonicalEmail = S2S.Shared.Security.EmailNormalizer.NormalizeForDuplicateCheck(changeEmailDTO.NewEmail);
+            var allEmails = await _userManager.Users
+                .Where(u => u.Id != user.Id)
+                .Select(u => u.Email)
+                .ToListAsync();
+
+            if (allEmails.Any(e => e != null &&
+                S2S.Shared.Security.EmailNormalizer.NormalizeForDuplicateCheck(e) == canonicalEmail))
+            {
+                _logger.LogWarning("Change Email failed: Normalized email already in use. UserId: {UserId}", user.Id);
+                return Error.Validation("DuplicateEmail", "Email is already in use.");
+            }
 
             // 4. Cooldown: prevent spamming OTP requests (1 minute)
             var lastOtp = await _context.UserOtps

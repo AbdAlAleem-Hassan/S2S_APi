@@ -1,6 +1,6 @@
 # S2S Backend — Validation Rules Reference
 
-> **Last Updated:** 2026-05-07
+> **Last Updated:** 2026-05-08
 >
 > This document lists **every validation rule** enforced by the backend so that the **Frontend** and **AI** teams can replicate them client-side.
 
@@ -30,6 +30,9 @@
 20. [CSRF / XSRF Token (Web Clients)](#20-csrf--xsrf-token)
 21. [Token Security Architecture](#21-token-security-architecture)
 22. [Profile Image Upload](#22-profile-image-upload)
+23. [Security Hardening (Audit 2026-05-08)](#23-security-hardening-audit-2026-05-08)
+24. [Authentication Redirect & Open Redirect Protection](#24-authentication-redirect--open-redirect-protection)
+25. [Email Normalization (Anti-Abuse)](#25-email-normalization-anti-abuse)
 
 ---
 
@@ -604,10 +607,23 @@ The server detects the auth method automatically:
 ```json
 HTTP 400
 {
-  "error": "anti-forgery validation failed",
-  "detail": "The required antiforgery request token was not provided..."
+  "error": "Anti-forgery validation failed."
 }
 ```
+
+### Production Setup (Reverse Proxy)
+
+When running behind a TLS-terminating reverse proxy (Nginx), the app receives HTTP internally.
+The following Nginx headers are **required** for CSRF cookies to work:
+
+```nginx
+proxy_set_header Host $host;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-Proto $scheme;
+```
+
+The app uses `UseForwardedHeaders()` to read `X-Forwarded-Proto` and correctly set
+the cookie `Secure` flag via `CookieSecurePolicy.SameAsRequest`.
 
 > **Note:** CSRF validation is **skipped in Development** mode to allow Swagger UI testing.
 
@@ -748,7 +764,7 @@ If valid & not expired:
 ```json
 {
   "UploadStorage": {
-    "BasePath": "/var/www/uploads"
+    "BasePath": "/app/wwwroot/media"
   }
 }
 ```
@@ -826,4 +842,337 @@ Profile image URLs use **GUID-based security** (unguessable URLs):
 | **No directory listing** | The storage endpoint only serves individual files — no browsing |
 
 > This is the same model used by Google Drive ("anyone with the link"), WhatsApp profile photos, and most modern platforms. It balances security with usability for features like chat avatars, user lists, and admin dashboards.
+
+---
+
+## 23. Security Hardening (Audit 2026-05-08)
+
+### Security Headers
+
+All API responses include the following security headers:
+
+| Header | Value | Purpose |
+|---|---|---|
+| `X-Content-Type-Options` | `nosniff` | Prevents MIME-type sniffing |
+| `X-Frame-Options` | `DENY` | Prevents clickjacking |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | Limits referrer leakage |
+| `Permissions-Policy` | `camera=(), microphone=(), geolocation=()` | Disables browser features |
+| `X-Permitted-Cross-Domain-Policies` | `none` | Blocks Flash/PDF cross-domain |
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` | Forces HTTPS (when detected) |
+
+### CORS Configuration
+
+| Property | Value |
+|---|---|
+| **Allowed Origins** | `https://s2sai.online`, `https://www.s2sai.online`, `http://localhost:3000`, `http://localhost:5173` |
+| **AllowAnyHeader** | ✅ |
+| **AllowAnyMethod** | ✅ |
+| **AllowCredentials** | ✅ (required for cookie-based auth) |
+
+> `AllowCredentials` is required so the browser sends the `refreshToken` and `XSRF-TOKEN` cookies cross-origin from the frontend.
+
+### Error Response Security
+
+All API error responses follow these rules:
+
+| Rule | Implementation |
+|---|---|
+| **No exception details** | `ex.Message` is never returned to clients |
+| **No stack traces** | `GlobalExceptionMiddleware` logs traces but returns generic ProblemDetails |
+| **No user enumeration** | `ForgotPassword` returns success even if email doesn't exist |
+| **No email echo** | Error messages don't include the user's email address |
+| **TraceId for debugging** | Each 500 response includes a unique `traceId` for log correlation |
+
+### Rate Limiting Summary
+
+| Endpoint | Policy | Limit |
+|---|---|---|
+| All Auth endpoints | `auth-limit` | 5/min per IP |
+| Register, ForgotPassword, ResendOtp, ChangeEmail | `otp-request-limit` | 3/10min per IP+email |
+| VerifyEmail, ResetPassword, ConfirmEmailChange | `otp-verify-limit` | 5/10min per IP |
+| ChangePassword | `change-password-limit` | 5/5min per user |
+| sign-to-text, audio-to-text, text-to-sign, audio-to-sign | `stt-limit` | 10/min per IP |
+| GetMedia | `media-limit` | 60/min per IP |
+| UploadProfileImage | `profile-image-upload-limit` | 5/min per user |
+
+### Admin Endpoint Protection
+
+| Protection | Detail |
+|---|---|
+| **Role-based access** | `[Authorize(Roles = "Admin")]` on all admin endpoints |
+| **Self-lock prevention** | Admin cannot lock their own account via `toggle-lock` |
+| **Rate limited** | `auth-limit` policy applied |
+
+### Swagger
+
+| Environment | Swagger Enabled |
+|---|---|
+| Development | ✅ Always |
+| Production | ❌ Off by default (set `EnableSwagger: true` to override) |
+
+> Endpoints with `[ValidateAntiForgeryForWeb]` automatically show `X-XSRF-TOKEN` header in Swagger UI via `CsrfTokenOperationFilter`.
+
+### JWT Token Hardening
+
+#### Token Claims (Minimal, No Duplicates)
+
+| Claim | Name in Token | Source |
+|---|---|---|
+| User ID | `sub` | `user.Id` |
+| Email | `email` | `user.Email` |
+| Username | `name` | `user.UserName` |
+| Token ID | `jti` | `Guid.NewGuid()` |
+| Role(s) | `role` | `UserManager.GetRolesAsync` |
+
+> **No schema URLs.** We use short JWT claim names (`sub`, `email`, `role`) instead of `http://schemas.xmlsoap.org/...` URIs. This reduces token size and prevents .NET framework leakage.
+
+#### Validation Configuration
+
+| Setting | Value | Why |
+|---|---|---|
+| `ValidateIssuer` | `true` | Ensures token was issued by our server |
+| `ValidateAudience` | `true` | Ensures token is intended for our API |
+| `ValidateLifetime` | `true` | Rejects expired tokens |
+| `ValidateIssuerSigningKey` | `true` | Verifies the signing key |
+| `ClockSkew` | `30 seconds` | Default was 5 min — expired tokens valid only 30s extra |
+| `MapInboundClaims` | `false` | Prevents ASP.NET from remapping `sub` → schema URL |
+| `RoleClaimType` | `"role"` | Maps `[Authorize(Roles)]` to short `role` claim |
+| `NameClaimType` | `JwtRegisteredClaimNames.Name` | Maps `User.Identity.Name` to `name` claim |
+
+#### Claim Reading (Controllers)
+
+```csharp
+// ✅ CORRECT — using JWT standard names
+var userId = User.FindFirstValue(JwtRegisteredClaimNames.Sub);
+var email = User.FindFirstValue(JwtRegisteredClaimNames.Email);
+
+// ❌ WRONG — would return null with MapInboundClaims=false
+var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+```
+
+### Reverse Proxy (Nginx) Requirements
+
+The app runs behind Nginx with TLS termination. Required Nginx headers:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name api.s2sai.online;
+
+    location / {
+        proxy_pass http://localhost:5000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+> Without `X-Forwarded-Proto`, HSTS headers and `Secure` cookies won't be set correctly.
+
+---
+
+## 24. Authentication Redirect & Open Redirect Protection
+
+### How It Works
+
+When an unauthenticated user hits any protected endpoint, the API returns a **structured 401 JSON response** (not an empty 401 or HTML redirect):
+
+```json
+HTTP 401
+{
+  "status": 401,
+  "title": "Authentication required",
+  "detail": "You must be logged in to access this resource.",
+  "loginUrl": "https://s2sai.online/login",
+  "returnUrl": "/api/v1/Auth/CurrentUser"
+}
+```
+
+For insufficient permissions (e.g., non-admin accessing admin endpoints):
+
+```json
+HTTP 403
+{
+  "status": 403,
+  "title": "Access denied",
+  "detail": "You do not have permission to access this resource."
+}
+```
+
+### Frontend Integration
+
+```javascript
+// Axios interceptor example
+axios.interceptors.response.use(
+  response => response,
+  error => {
+    if (error.response?.status === 401) {
+      const { loginUrl, returnUrl } = error.response.data;
+      // Redirect to login with returnUrl
+      window.location.href = returnUrl
+        ? `${loginUrl}?returnUrl=${encodeURIComponent(returnUrl)}`
+        : loginUrl;
+    }
+    return Promise.reject(error);
+  }
+);
+```
+
+### Open Redirect Protection (Whitelist)
+
+The `returnUrl` is validated server-side against a whitelist before being included in the response. This prevents attackers from crafting URLs that redirect users to malicious sites.
+
+#### Whitelisted Origins
+
+| Origin | Environment |
+|---|---|
+| `https://s2sai.online` | Production |
+| `https://www.s2sai.online` | Production (www) |
+| `http://localhost:3000` | Development (React) |
+| `http://localhost:5173` | Development (Vite) |
+
+#### Validation Rules (11 Defense Layers)
+
+| Input | Result | Reason |
+|---|---|---|
+| `/api/v1/Auth/CurrentUser` | ✅ Allowed | Relative `/api/` path |
+| `/api/v1/Translate/sign-to-text` | ✅ Allowed | Relative `/api/` path |
+| `https://s2sai.online/home` | ✅ Allowed | Whitelisted origin |
+| `/dashboard` | ❌ Rejected → `null` | Not an `/api/` path |
+| `/profile` | ❌ Rejected → `null` | Not an `/api/` path |
+| `https://evil.com/phish` | ❌ Rejected → `null` | Not in whitelist |
+| `//evil.com` | ❌ Rejected → `null` | Protocol-relative URL |
+| `javascript:alert(1)` | ❌ Rejected → `null` | Dangerous scheme |
+| `data:text/html,...` | ❌ Rejected → `null` | Dangerous scheme |
+| `file:///etc/passwd` | ❌ Rejected → `null` | Dangerous scheme |
+| `\\/evil.com` | ❌ Rejected → `null` | Backslash bypass |
+| `%2F%2Fevil.com` | ❌ Rejected → `null` | URL-encoded bypass |
+| `\0/api/v1/hack` | ❌ Rejected → `null` | Control character |
+| (3000+ char URL) | ❌ Rejected → `null` | Length limit exceeded |
+
+#### Implementation
+
+**File:** `Sehety.Shared/Security/RedirectUrlValidator.cs`
+
+```csharp
+// Usage anywhere in the codebase:
+var safeUrl = RedirectUrlValidator.Validate(userProvidedUrl);
+// Returns the URL if safe, null if rejected
+
+bool isSafe = RedirectUrlValidator.IsSafe(userProvidedUrl);
+```
+
+### Protected vs Unprotected Endpoints
+
+| Endpoint | Auth Required | Returns 401 if missing |
+|---|---|---|
+| `POST /Auth/Login` | ❌ | — |
+| `POST /Auth/Register` | ❌ | — |
+| `POST /Auth/VerifyEmail` | ❌ | — |
+| `POST /Auth/ForgotPassword` | ❌ | — |
+| `POST /Auth/ResetPassword` | ❌ | — |
+| `POST /Auth/ResendOtp` | ❌ | — |
+| `POST /Auth/google-login` | ❌ | — |
+| `POST /Auth/RefreshToken` | ❌ | — |
+| `GET /media/{type}/{file}` | ❌ | — |
+| `GET /healthz` | ❌ | — |
+| `GET /Auth/CurrentUser` | ✅ `[Authorize]` | ✅ 401 + loginUrl |
+| `POST /Auth/Logout` | ✅ `[Authorize]` | ✅ 401 + loginUrl |
+| `POST /Auth/ChangePassword` | ✅ `[Authorize]` | ✅ 401 + loginUrl |
+| `POST /Auth/UpdateProfile` | ✅ `[Authorize]` | ✅ 401 + loginUrl |
+| `POST /Auth/UploadProfileImage` | ✅ `[Authorize]` | ✅ 401 + loginUrl |
+| `POST /Auth/ChangeEmail` | ✅ `[Authorize]` | ✅ 401 + loginUrl |
+| `POST /Auth/ConfirmEmailChange` | ✅ `[Authorize]` | ✅ 401 + loginUrl |
+| `POST /Auth/UpdateFcmToken` | ✅ `[Authorize]` | ✅ 401 + loginUrl |
+| All `/Translate/*` endpoints | ✅ `[Authorize]` | ✅ 401 + loginUrl |
+| All `/Admin/*` endpoints | ✅ `[Authorize(Roles="Admin")]` | ✅ 401 or 403 |
+
+---
+
+## 25. Email Normalization (Anti-Abuse)
+
+### Problem
+
+Gmail (and Googlemail) ignore dots and `+tags` in email addresses. An attacker can create unlimited accounts with the same mailbox:
+
+```
+user@gmail.com
+u.ser@gmail.com        ← same mailbox
+us.e.r@gmail.com       ← same mailbox
+user+spam@gmail.com    ← same mailbox
+```
+
+### Solution
+
+| Rule | Action | Applies To |
+|---|---|---|
+| **`+` (plus-addressing)** | ❌ **Blocked outright** | All providers |
+| **`.` (dot trick)** | Normalized for duplicate check | Gmail/Googlemail only |
+
+> Plus-addressing (`user+tag@any.com`) is **always rejected** at registration, email change, and Firebase login.
+
+### How It Works
+
+```
+Registration attempt: "u.s.e.r+promo@gmail.com"
+          ↓
+Step 1: Block '+' → ❌ REJECTED ("Email addresses with '+' are not allowed.")
+```
+
+```
+Registration attempt: "u.s.e.r@gmail.com"
+          ↓
+Step 1: Block '+' → ✅ no plus
+Step 2: Exact match check → ❌ not found
+Step 3: Normalize → "user@gmail.com"
+Step 4: Check normalized against ALL existing emails:
+        - "user@gmail.com" → normalize → "user@gmail.com" → ⚠️ MATCH!
+          ↓
+Result: "Email is already in use."
+```
+
+### Normalization Rules
+
+| Input Email | Normalized Form | Notes |
+|---|---|---|
+| `user@gmail.com` | `user@gmail.com` | No change |
+| `u.ser@gmail.com` | `user@gmail.com` | Dots removed (Gmail) |
+| `u.s.e.r@gmail.com` | `user@gmail.com` | All dots removed (Gmail) |
+| `user+tag@gmail.com` | ❌ Blocked | Plus not allowed |
+| `user+tag@outlook.com` | ❌ Blocked | Plus not allowed |
+| `user.name@outlook.com` | `user.name@outlook.com` | Dots **kept** (non-Gmail) |
+| `User@Gmail.COM` | `user@gmail.com` | Case-insensitive |
+
+### Enforced On
+
+| Endpoint | Plus Block | Dot Check |
+|---|---|---|
+| `POST /Auth/Register` | ✅ | ✅ |
+| `POST /Auth/ChangeEmail` | ✅ | ✅ |
+| `POST /Auth/google-login` (Firebase) | ✅ | ✅ |
+
+### Error Responses
+
+| Error Code | HTTP | Description |
+|---|---|---|
+| `Email.PlusNotAllowed` | 400 | Email contains `+` in local part |
+| `DuplicateEmail` | 400 | Normalized email matches existing account |
+
+### Implementation
+
+**File:** `Sehety.Shared/Security/EmailNormalizer.cs`
+
+```csharp
+// Block '+' addressing (all providers)
+EmailNormalizer.ContainsPlus("user+tag@gmail.com");   // true → reject
+EmailNormalizer.ContainsPlus("user+tag@outlook.com"); // true → reject
+EmailNormalizer.ContainsPlus("user@gmail.com");       // false → ok
+
+// Normalize for duplicate check (dots: Gmail only)
+EmailNormalizer.NormalizeForDuplicateCheck("u.ser@gmail.com");   // "user@gmail.com"
+EmailNormalizer.NormalizeForDuplicateCheck("u.ser@outlook.com"); // "u.ser@outlook.com" (dots kept)
+```
+
+> **Important:** The original email (with dots) is stored as-is in the database. Normalization is only used for **duplicate detection** — email delivery always uses the original address.
 
