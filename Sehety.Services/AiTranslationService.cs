@@ -124,11 +124,18 @@ namespace S2S.Services
 				{
 					var body = await response.Content.ReadAsStringAsync();
 
-					_logger.LogError("AI Server returned error in TextToSign. Status: {StatusCode}, Body: {Body}",
-					(int)response.StatusCode,
-					body);
+					// 👇 اصطياد الإيرور الخاص بعدم وجود الكلمة في قاموس الذكاء الاصطناعي
+					if (body.Contains("NO_POSE_FILES_FOUND") || body.Contains("لم يتم العثور"))
+					{
+						_logger.LogWarning("Word not found in AI dictionary AI Response: {Body}", body);
 
-					return Error.Failure("AiServer.Error", $"AI Server Error ({response.StatusCode}): {body}");
+						// إرجاع خطأ Validation (عادة بيرمي 400 Bad Request) بدلاً من 500 Server Error
+						return Error.Validation("Translation.WordNotFound", "عفواً، هذه الكلمة غير متوفرة في قاموس لغة الإشارة حالياً.");
+					}
+
+					// أي إيرور تاني من سيرفر الـ AI
+					_logger.LogError("AI Server returned error in TextToSign. Status: {StatusCode}, Body: {Body}", (int)response.StatusCode, body);
+					return Error.Failure("AiServer.Error", $"AI Server Error: {body}");
 				}
 
 				var result  = await response.Content.ReadAsStringAsync();

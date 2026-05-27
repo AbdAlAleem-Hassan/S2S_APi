@@ -3,19 +3,21 @@ using FluentValidation;
 using FluentValidation.AspNetCore;
 using Google.Apis.Auth.OAuth2;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Authorization;
 using Microsoft.AspNetCore.Mvc.Versioning;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
-using System.IdentityModel.Tokens.Jwt;
 using S2S.Domain.Contracts;
 using S2S.Domain.Entities.IdentityModule;
+using S2S.Domain.Entities.Translation;
 using S2S.Persistence.IdentityData.DataSeed;
 using S2S.Persistence.IdentityData.DbContexts;
 using S2S.Services;
@@ -29,6 +31,7 @@ using S2S.Web.Middleware;
 using S2S.Web.Services;
 using Serilog;
 using System.Data.Common;
+using System.IdentityModel.Tokens.Jwt;
 using System.Text;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
@@ -63,9 +66,15 @@ builder.Host.UseSerilog((context, loggerConfiguration) =>
     loggerConfiguration.ReadFrom.Configuration(builder.Configuration));
 #endregion
 
-builder.Services.AddControllers().AddJsonOptions(options =>
+builder.Services.AddControllers(options =>
 {
-	// السطر ده هيخلي أي حقل قيمته Null ميظهرش في الـ JSON نهائياً
+	var policy = new AuthorizationPolicyBuilder()
+					.RequireAuthenticatedUser()
+					.Build();
+
+	options.Filters.Add(new AuthorizeFilter(policy));
+}).AddJsonOptions(options =>
+{
 	options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
 });
 
@@ -211,6 +220,7 @@ builder.Services.AddScoped<IOtpService, OtpService>();
 builder.Services.AddScoped<IProfileService, ProfileService>();
 builder.Services.AddScoped<IAdminService, AdminService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
+builder.Services.AddScoped<ITranslationHistoryService, TranslationHistoryService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddSingleton<GroqApiKeyPool>();
 builder.Services.AddHttpClient<ISpeechToTextService, GroqSpeechToTextService>(client =>
@@ -347,6 +357,24 @@ builder.Services.AddAuthentication(configureOptions =>
             await context.Response.WriteAsJsonAsync(response);
         }
     };
+	options.Events = new JwtBearerEvents
+	{
+		OnChallenge = context =>
+		{
+			context.HandleResponse();
+
+			context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+			context.Response.ContentType = "application/json";
+
+			var result = System.Text.Json.JsonSerializer.Serialize(new
+			{
+				error = "Unauthorized",
+				message = "Please login to access this resource. Navigate to /api/v1/Auth/Login"
+			});
+
+			return context.Response.WriteAsync(result);
+		}
+	};
 });
 
 builder.Services.AddApiVersioning(options =>

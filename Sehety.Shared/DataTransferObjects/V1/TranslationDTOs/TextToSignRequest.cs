@@ -18,6 +18,7 @@ namespace S2S.Shared.DataTransferObjects.V1.TranslationDTOs
 		public string Speed { get; set; } = "1.0";
 		[FromForm(Name = "output_format")]
 		[DefaultValue("pose")]
-		public string OutputFormat { get; set; } = "pose"; 
+		public string OutputFormat { get; set; } = "pose";
+		public bool SaveToHistory { get; set; }
 	}
 }

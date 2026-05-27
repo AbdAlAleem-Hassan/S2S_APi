@@ -14,6 +14,7 @@ using S2S.Shared.Constants;
 using S2S.Shared.DataTransferObjects.V1.TranslationDTOs;
 using S2S.Shared.Helpers;
 using S2S.Shared.Security;
+using System.Security.Claims;
 using System.Text.Json;
 
 namespace S2S.Presentation.Controllers.V1
@@ -27,7 +28,8 @@ namespace S2S.Presentation.Controllers.V1
 		ITextToSpeechService _textToSpeechService,
 		IWebHostEnvironment _env,
 		IConfiguration _configuration,
-		ILogger<TranslateController> _logger) : ApiBaseController
+		ITranslationHistoryService _historyService,
+	ILogger<TranslateController> _logger) : ApiBaseController
 	{
 		private const long MaxVideoSizeBytes = MediaDefaults.MaxVideoSizeBytes;
 		private const long MaxAudioSizeBytes = MediaDefaults.MaxAudioSizeBytes;
@@ -47,7 +49,6 @@ namespace S2S.Presentation.Controllers.V1
 			return UrlRewriter.BuildMediaUrl(HttpContext, fileName, type);
 		}
 
-		// 💡 الدالة السحرية دي بتاخد اللينك من الـ AI، تعرف نوعه، تحمله، وترجعلك اللينك الجديد!
 		private async Task<string?> ProcessAndDownloadMediaAsync(string? originalUrl)
 		{
 			if (string.IsNullOrEmpty(originalUrl)) return null;
@@ -69,6 +70,22 @@ namespace S2S.Presentation.Controllers.V1
 				return RewriteUrl(fileName, type);
 			}
 			return null;
+		}
+		private async Task<string?> SaveUploadedVideoAsync(IFormFile video)
+		{
+			if (video == null || video.Length == 0) return null;
+			var fileName = $"{Guid.NewGuid()}{Path.GetExtension(video.FileName)}";
+			var webRootPath = _env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+			var uploadsFolder = Path.Combine(webRootPath, "media", "video");
+
+			if (!Directory.Exists(uploadsFolder)) Directory.CreateDirectory(uploadsFolder);
+			var filePath = Path.Combine(uploadsFolder, fileName);
+
+			using (var stream = new FileStream(filePath, FileMode.Create))
+			{
+				await video.CopyToAsync(stream);
+			}
+			return RewriteUrl(fileName, "video");
 		}
 
 		private static string? ExtractTranslationString(Dictionary<string, object?> translation, string key)
@@ -149,55 +166,60 @@ namespace S2S.Presentation.Controllers.V1
 				return HandleRequest(Result<SignToTextResponseDTO>.Fail(validationResult.Errors.ToList()));
 			}
 
-			var serviceResult = await _service.SendSignToTextAsync(request.VideoFile);
+			// 👇 التعديل هنا: استقبال الـ ID كـ string مباشرة
+			// هيدور على الـ ID في أشهر الأسماء اللي بنستخدمها في الـ JWT
+			var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+					  ?? User.FindFirstValue(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)
+					  ?? User.FindFirstValue("uid")
+					  ?? User.FindFirstValue("id");
 
+			if (string.IsNullOrEmpty(userId))
+			{
+				// لو لسه مش لاقيه، السطر ده هيطبعلك كل الـ Claims اللي في التوكن في الكونسول عشان تعرف اسمها إيه بالظبط
+				var claims = string.Join(", ", User.Claims.Select(c => c.Type));
+				_logger.LogWarning("User ID not found in token. Available claims: {Claims}", claims);
+
+				return Unauthorized(new { message = "Invalid token claims. Could not extract User ID." });
+			}
+
+			var serviceResult = await _service.SendSignToTextAsync(request.VideoFile);
 			if (!serviceResult.IsSuccess) return HandleRequest(Result<SignToTextResponseDTO>.Fail(serviceResult.Errors.ToList()));
 
 			try
 			{
 				var resultDto = JsonSerializer.Deserialize<SignToTextResponseDTO>(serviceResult.Value);
-				if (resultDto == null)
+				string? generatedAudioUrl = null;
+				string? textResult = null;
+
+				if (resultDto?.translation != null && resultDto.translation.TryGetValue("text", out var txtObj))
 				{
-					return HandleRequest(Result<SignToTextResponseDTO>.Fail(
-						Error.Failure("Translation.ParseError", "Invalid response from AI server.")));
+					textResult = txtObj?.ToString();
 				}
 
-				if (request.IncludeAudio)
+				if (request.IncludeAudio && !string.IsNullOrWhiteSpace(textResult))
 				{
-					if (resultDto.translation == null)
+					var ttsResult = await _textToSpeechService.SynthesizeAsync(textResult, request.Language, cancellationToken);
+					if (ttsResult.IsSuccess)
 					{
-						_logger.LogWarning("Sign-to-text response missing translation payload. Audio generation skipped.");
+						generatedAudioUrl = RewriteUrl(ttsResult.Value, "audio");
+						resultDto.translation["audio_url"] = generatedAudioUrl;
 					}
-					else
-					{
-						var text = ExtractTranslationString(resultDto.translation, "text");
-						if (string.IsNullOrWhiteSpace(text))
-						{
-							_logger.LogWarning("Sign-to-text response missing text. Audio generation skipped.");
-						}
-						else
-						{
-							var ttsLanguage = NormalizeTtsLanguage(request.Language);
-							var ttsResult = await _textToSpeechService.SynthesizeAsync(text, ttsLanguage, cancellationToken);
-							if (ttsResult.IsSuccess)
-							{
-								resultDto.translation["audio_url"] = RewriteUrl(ttsResult.Value, "audio");
-							}
-							else
-							{
-								var errorCode = ttsResult.Errors.FirstOrDefault()?.Code ?? "Tts.Failed";
-								_logger.LogWarning("TTS failed for sign-to-text. Error: {ErrorCode}", errorCode);
-							}
-						}
-					}
+				}
+
+				if (request.SaveToHistory && !string.IsNullOrWhiteSpace(textResult))
+				{
+					var uploadedVideoUrl = await SaveUploadedVideoAsync(request.VideoFile);
+
+					// تمرير userId كـ string
+					await _historyService.SaveSignToTextHistoryAsync(userId, uploadedVideoUrl, textResult, generatedAudioUrl);
 				}
 
 				return HandleRequest(Result<SignToTextResponseDTO>.Ok(resultDto));
 			}
 			catch (Exception ex)
 			{
-				_logger.LogError(ex, "Failed to parse sign-to-text response.");
-				return StatusCode(500, new { error = "Translation processing failed. Please try again." });
+				_logger.LogError(ex, "Processing failed.");
+				return StatusCode(500, new { error = "Processing failed." });
 			}
 		}
 
@@ -235,40 +257,87 @@ namespace S2S.Presentation.Controllers.V1
 		[EndpointDescription("Process The Text Input Using AI Model And Convert Text To Avatar")]
 		public async Task<ActionResult<ToSignResponseDTO>> TextToSign([FromForm] TextToSignRequest request)
 		{
-			var serviceResult = await _service.SendTextToSignAsync(request.Text, request.Avatar, request.Speed, request.OutputFormat);
+			// 👇 التعديل هنا: استقبال الـ ID كـ string مباشرة
+			// هيدور على الـ ID في أشهر الأسماء اللي بنستخدمها في الـ JWT
+			var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+					  ?? User.FindFirstValue(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)
+					  ?? User.FindFirstValue("uid")
+					  ?? User.FindFirstValue("id");
 
+			if (string.IsNullOrEmpty(userId))
+			{
+				// لو لسه مش لاقيه، السطر ده هيطبعلك كل الـ Claims اللي في التوكن في الكونسول عشان تعرف اسمها إيه بالظبط
+				var claims = string.Join(", ", User.Claims.Select(c => c.Type));
+				_logger.LogWarning("User ID not found in token. Available claims: {Claims}", claims);
+
+				return Unauthorized(new { message = "Invalid token claims. Could not extract User ID." });
+			}
+
+			var serviceResult = await _service.SendTextToSignAsync(request.Text, request.Avatar, request.Speed, request.OutputFormat);
 			if (!serviceResult.IsSuccess) return HandleRequest(Result<ToSignResponseDTO>.Fail(serviceResult.Errors.ToList()));
 
 			try
 			{
 				var resultDto = JsonSerializer.Deserialize<ToSignResponseDTO>(serviceResult.Value);
-				if (resultDto == null)
+				if (resultDto?.translation != null)
 				{
-					return HandleRequest(Result<ToSignResponseDTO>.Fail(
-						Error.Failure("Translation.ParseError", "Invalid response from AI server.")));
-				}
-
-				if (resultDto.translation != null)
-				{
-					// معالجة الفيديو لو موجود
 					if (!string.IsNullOrEmpty(resultDto.translation.video_url))
 						resultDto.translation.video_url = await ProcessAndDownloadMediaAsync(resultDto.translation.video_url);
 
-					// معالجة الـ Pose لو موجود
 					if (!string.IsNullOrEmpty(resultDto.translation.pose_url))
 						resultDto.translation.pose_url = await ProcessAndDownloadMediaAsync(resultDto.translation.pose_url);
 
-					// ملحوظة: الـ sigml_content بيرجع نص XML جاهز فمش محتاج تحميل، هيرجع للموبايل زي ما هو
+					if (request.SaveToHistory)
+					{
+						// تمرير userId كـ string
+						await _historyService.SaveTextToSignHistoryAsync(
+							userId,
+							request.Text,
+							resultDto.translation.video_url,
+							resultDto.translation.pose_url,
+							resultDto.translation.sigml_content);
+					}
 				}
-
 				return HandleRequest(Result<ToSignResponseDTO>.Ok(resultDto));
 			}
 			catch (Exception ex)
 			{
-				_logger.LogError(ex, "Failed to parse text-to-sign response.");
-				return StatusCode(500, new { error = "Translation processing failed. Please try again." });
+				_logger.LogError(ex, "Processing failed.");
+				return StatusCode(500, new { error = "Processing failed." });
 			}
 		}
+
+
+
+		[HttpGet("history")]
+		[ProducesResponseType<List<TranslationHistoryResponseDTO>>(StatusCodes.Status200OK)]
+		[ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
+		[ProducesResponseType<ProblemDetails>(StatusCodes.Status500InternalServerError)]
+		[EndpointSummary("Get User Translation History")]
+		[EndpointDescription("Retrieve a paginated list of the user's past translations, ordered from newest to oldest.")]
+		public async Task<ActionResult<List<TranslationHistoryResponseDTO>>> GetHistory([FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10)
+		{
+			// جلب الـ ID بأمان كـ string ودعم كافة صيغ الـ Claims المحتملة في التوكن
+			var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+					  ?? User.FindFirstValue(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)
+					  ?? User.FindFirstValue("uid")
+					  ?? User.FindFirstValue("id");
+
+			if (string.IsNullOrEmpty(userId))
+			{
+				return Unauthorized(new { message = "Invalid token or user not authenticated." });
+			}
+
+			var result = await _historyService.GetUserHistoryAsync(userId, pageNumber, pageSize);
+
+			if (!result.IsSuccess)
+				return HandleRequest(Result<List<TranslationHistoryResponseDTO>>.Fail(result.Errors.ToList()));
+
+			return HandleRequest(Result<List<TranslationHistoryResponseDTO>>.Ok(result.Value));
+		}
+
+
+
 
 		[HttpPost("audio-to-sign")]
 		[Consumes("multipart/form-data")]
