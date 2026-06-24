@@ -23,6 +23,7 @@ namespace S2S.Presentation.Controllers.V1
 	[ApiVersion("1.0")]
 	[Route("api/v{version:apiVersion}/Auth")]
     [EnableRateLimiting(RateLimitPolicies.AuthLimit)]
+	[ValidateAntiForgeryForWeb]
 	public class AuthenticationController : ApiBaseController
 	{
 		private readonly IAuthService _authService;
@@ -122,7 +123,6 @@ namespace S2S.Presentation.Controllers.V1
 
         
         [HttpPost("RefreshToken")]
-        [ValidateAntiForgeryForWeb]
 		[AllowAnonymous]
 		public async Task<ActionResult<UserDTO>> RefreshToken([FromBody] RefreshTokenDTO? refreshTokenDTO = null)
         {
@@ -142,7 +142,6 @@ namespace S2S.Presentation.Controllers.V1
 
         [Authorize]
         [HttpPost("Logout")]
-        [ValidateAntiForgeryForWeb]
         public async Task<ActionResult> Logout([FromBody] RefreshTokenDTO? refreshTokenDTO = null)
         {
             // Support both web (cookie) and mobile (body) clients
@@ -155,18 +154,17 @@ namespace S2S.Presentation.Controllers.V1
             return Ok(new { success = true, message = "Logged out successfully" });
         }
 
-        [EnableRateLimiting(RateLimitPolicies.OtpRequestLimit)]
+        [EnableRateLimiting(RateLimitPolicies.ResendOtpLimit)]
         [HttpPost("ResendOtp")]
 		[AllowAnonymous]
 		public async Task<ActionResult> ResendOtp([FromQuery] string email)
         {
             if (string.IsNullOrWhiteSpace(email) || email.Length > 256 || !new EmailAddressAttribute().IsValid(email))
-                return BadRequest(new { error = "A valid email address is required." });
+                return Ok(new { success = true, message = "If your email is registered, a verification code has been sent." });
 
-            var result = await _otpService.ResendOtpAsync(email);
-            if (result.IsSuccess)
-                return Ok(new { success = true, message = "New verification code sent to your email" });
-            return HandleRequest(result);
+            await _otpService.ResendOtpAsync(email);
+
+            return Ok(new { success = true, message = "If your email is registered, a verification code has been sent." });
         }
 
         [EnableRateLimiting(RateLimitPolicies.OtpRequestLimit)]

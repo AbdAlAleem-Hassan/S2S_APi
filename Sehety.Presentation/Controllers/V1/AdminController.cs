@@ -52,5 +52,19 @@ namespace S2S.Presentation.Controllers.V1
 			}
 			return HandleRequest(result);
 		}
+
+		[HttpPut("users/{id}/toggle-unlimited")]
+		[EndpointSummary("Set/Unset User as Unlimited")]
+		[EndpointDescription("Toggles whether a user has unlimited translation quota. Change takes effect on next login or token refresh (up to 15 min).")]
+		public async Task<ActionResult<string>> ToggleUnlimited(string id)
+		{
+			var result = await _adminService.ToggleUserUnlimitedStatusAsync(id);
+
+			if (result.IsSuccess)
+			{
+				return Ok(result);
+			}
+			return HandleRequest(result);
+		}
 	}
 }

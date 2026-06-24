@@ -22,6 +22,8 @@ namespace S2S.Persistence.Configrations
             builder.Property(u=> u.SignLanguage).HasConversion<string>();
 
 
+            builder.Property(u => u.IsUnlimited).HasDefaultValue(false);
+
             builder.OwnsOne(u => u.Address, address =>
             {
                 address.ToTable("UserAddresses");

@@ -3,9 +3,6 @@ using System.Text;
 
 namespace S2S.Services
 {
-    /// <summary>
-    /// Shared static utility methods used by all auth-related services.
-    /// </summary>
     public static class AuthHelpers
     {
         public static string GenerateOtp() =>
@@ -13,15 +10,25 @@ namespace S2S.Services
 
         public static string HashOtp(string otp)
         {
-            var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(otp));
+            return BCrypt.Net.BCrypt.HashPassword(otp, workFactor: 10);
+        }
+
+        public static bool VerifyOtp(string otp, string hash)
+        {
+            return BCrypt.Net.BCrypt.Verify(otp, hash);
+        }
+
+        public static string HashRefreshToken(string token)
+        {
+            var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(token));
             return Convert.ToBase64String(bytes);
         }
 
-        /// <summary>
-        /// Hashes a refresh token before storing in the database.
-        /// The plaintext token is returned to the client; only the hash is persisted.
-        /// </summary>
-        public static string HashRefreshToken(string token) => HashOtp(token);
+        public static string HashSecureToken(string token)
+        {
+            var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(token));
+            return Convert.ToBase64String(bytes);
+        }
 
         public static string GenerateSecureToken()
         {

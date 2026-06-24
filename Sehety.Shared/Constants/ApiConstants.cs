@@ -9,6 +9,8 @@ namespace S2S.Shared.Constants
         public const string SttLimit = "stt-limit";
         public const string MediaLimit = "media-limit";
         public const string ProfileImageUploadLimit = "profile-image-upload-limit";
+        public const string ResendOtpLimit = "resend-otp-limit";
+        public const string TranslationQuota = "translation-quota";
     }
 
     public static class CookieNames

@@ -1,5 +1,6 @@
 # Base stage for runtime
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
+RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 # Heroku uses dynamic ports, so we don't fix one here
 # The port is handled in Program.cs via Environment Variable

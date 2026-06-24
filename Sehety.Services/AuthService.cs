@@ -286,7 +286,7 @@ namespace S2S.Services
             foreach (var old in oldOtps) old.IsUsed = true;
 
             var rawToken = AuthHelpers.GenerateSecureToken();
-            var hashedToken = AuthHelpers.HashOtp(rawToken);
+            var hashedToken = AuthHelpers.HashSecureToken(rawToken);
 
             var otpRecord = new UserOtp
             {
@@ -320,7 +320,7 @@ namespace S2S.Services
         {
             _logger.LogInformation("Processing Reset Password request.");
 
-            var hashedToken = AuthHelpers.HashOtp(resetPasswordDTO.Token);
+            var hashedToken = AuthHelpers.HashSecureToken(resetPasswordDTO.Token);
 
             var tokenRecord = await _context.UserOtps
                 .Include(o => o.User)

@@ -344,7 +344,7 @@ namespace S2S.Services
             }
 
             // 3. Verify OTP hash
-            if (latestOtp.OtpHash != AuthHelpers.HashOtp(confirmEmailChangeDTO.Otp))
+            if (!AuthHelpers.VerifyOtp(confirmEmailChangeDTO.Otp, latestOtp.OtpHash))
             {
                 latestOtp.Attempts++;
                 var remaining = AuthDefaults.MaxOtpAttempts - latestOtp.Attempts;

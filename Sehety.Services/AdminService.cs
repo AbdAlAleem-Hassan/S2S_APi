@@ -52,5 +52,18 @@ namespace S2S.Services
 				return Result<string>.Ok("User Unlocked Successfully");
 			}
 		}
+
+		public async Task<Result<string>> ToggleUserUnlimitedStatusAsync(string userId)
+		{
+			var user = await _userManager.FindByIdAsync(userId);
+			if (user == null)
+				return Error.NotFound("User.NotFound", "User not found.");
+
+			user.IsUnlimited = !user.IsUnlimited;
+			await _userManager.UpdateAsync(user);
+
+			var status = user.IsUnlimited ? "Unlimited" : "Limited";
+			return Result<string>.Ok($"User translation quota set to {status}");
+		}
 	}
 }

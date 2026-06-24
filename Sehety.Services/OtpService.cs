@@ -72,7 +72,7 @@ namespace S2S.Services
                 return Error.Validation("MaxAttemptsReached", "Maximum attempts reached. Please request a new code.");
             }
 
-            if (latestOtp.OtpHash != AuthHelpers.HashOtp(verifyOtpDTO.Otp))
+            if (!AuthHelpers.VerifyOtp(verifyOtpDTO.Otp, latestOtp.OtpHash))
             {
                 latestOtp.Attempts++;
                 var remaining = AuthDefaults.MaxOtpAttempts - latestOtp.Attempts;
@@ -123,19 +123,22 @@ namespace S2S.Services
 
         public async Task<Result> ResendOtpAsync(string email)
         {
-            _logger.LogInformation("Processing Resend OTP request.");
+            _logger.LogInformation("Processing Resend OTP request for email: {Email}", email);
 
             var user = await _userManager.FindByEmailAsync(email);
+
+            // Always return success — never leak whether the email exists or is verified.
+            // The log records the real reason for auditing, but the response is identical.
             if (user == null)
             {
-                _logger.LogWarning("Resend OTP failed: User not found.");
-                return Error.NotFound("UserNotFound", "User not found.");
+                _logger.LogWarning("Resend OTP skipped: User not found for email.");
+                return Result.Ok();
             }
 
             if (user.EmailConfirmed)
             {
                 _logger.LogInformation("Resend OTP skipped: User already verified. UserId: {UserId}", user.Id);
-                return Error.Validation("AlreadyVerified", "Email is already verified.");
+                return Result.Ok();
             }
 
             var lastOtp = await _context.UserOtps
@@ -146,7 +149,7 @@ namespace S2S.Services
             if (lastOtp != null && lastOtp.CreatedAt > DateTime.UtcNow.AddMinutes(-1))
             {
                 _logger.LogWarning("Resend OTP throttled. UserId: {UserId}", user.Id);
-                return Error.Validation("PleaseWait", "Please wait a minute before requesting a new code.");
+                return Result.Ok();
             }
 
             var otpCode = AuthHelpers.GenerateOtp();

@@ -74,18 +74,54 @@ namespace S2S.Presentation.Controllers.V1
 		private async Task<string?> SaveUploadedVideoAsync(IFormFile video)
 		{
 			if (video == null || video.Length == 0) return null;
-			var fileName = $"{Guid.NewGuid()}{Path.GetExtension(video.FileName)}";
+			var ext = Path.GetExtension(video.FileName);
+			var fileName = $"{Guid.NewGuid()}{ext}";
 			var webRootPath = _env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
 			var uploadsFolder = Path.Combine(webRootPath, "media", "video");
 
 			if (!Directory.Exists(uploadsFolder)) Directory.CreateDirectory(uploadsFolder);
-			var filePath = Path.Combine(uploadsFolder, fileName);
+			var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}{ext}");
+			var outputPath = Path.Combine(uploadsFolder, fileName);
 
-			using (var stream = new FileStream(filePath, FileMode.Create))
+			try
 			{
-				await video.CopyToAsync(stream);
+				using (var stream = new FileStream(tempPath, FileMode.Create))
+				{
+					await video.CopyToAsync(stream);
+				}
+
+				// Use FFmpeg to remux: strip metadata and validate container
+				// -map_metadata -1 removes all metadata (EXIF, GPS, etc.)
+				// -c copy copies streams without re-encoding (fast)
+				// -movflags +faststart optimizes MP4 for web streaming
+				var process = new System.Diagnostics.Process
+				{
+					StartInfo = new System.Diagnostics.ProcessStartInfo
+					{
+						FileName = "ffmpeg",
+						Arguments = $"-i \"{tempPath}\" -map_metadata -1 -c copy -movflags +faststart -y \"{outputPath}\"",
+						RedirectStandardOutput = true,
+						RedirectStandardError = true,
+						UseShellExecute = false,
+						CreateNoWindow = true
+					}
+				};
+				process.Start();
+				await process.WaitForExitAsync();
+
+				if (process.ExitCode != 0 || !System.IO.File.Exists(outputPath))
+				{
+					_logger.LogWarning("FFmpeg remux failed for uploaded video. ExitCode: {ExitCode}", process.ExitCode);
+					return null;
+				}
+
+				return RewriteUrl(fileName, "video");
 			}
-			return RewriteUrl(fileName, "video");
+			finally
+			{
+				if (System.IO.File.Exists(tempPath))
+					System.IO.File.Delete(tempPath);
+			}
 		}
 
 		private static string? ExtractTranslationString(Dictionary<string, object?> translation, string key)
@@ -150,7 +186,7 @@ namespace S2S.Presentation.Controllers.V1
 
 		[HttpPost("sign-to-text")]
 		[Consumes("multipart/form-data")]
-		[EnableRateLimiting("stt-limit")]
+		[EnableRateLimiting(RateLimitPolicies.TranslationQuota)]
 		[RequestSizeLimit(MaxVideoSizeBytes)]
 		[ProducesResponseType<SignToTextResponseDTO>(StatusCodes.Status200OK)]
 		[ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
@@ -225,7 +261,7 @@ namespace S2S.Presentation.Controllers.V1
 
 		[HttpPost("audio-to-text")]
 		[Consumes("multipart/form-data")]
-		[EnableRateLimiting("stt-limit")]
+		[EnableRateLimiting(RateLimitPolicies.TranslationQuota)]
 		[RequestSizeLimit(MaxAudioSizeBytes)]
 		[ProducesResponseType<AudioToTextResponseDTO>(StatusCodes.Status200OK)]
 		[ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
@@ -247,7 +283,7 @@ namespace S2S.Presentation.Controllers.V1
 		}
 
 		[HttpPost("text-to-sign")]
-		[EnableRateLimiting("stt-limit")]
+		[EnableRateLimiting(RateLimitPolicies.TranslationQuota)]
 		[Consumes("multipart/form-data")]
 		[ProducesResponseType<ToSignResponseDTO>(StatusCodes.Status200OK)]
 		[ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
@@ -347,7 +383,7 @@ namespace S2S.Presentation.Controllers.V1
 		//[EndpointName("Convert Audio To Sign")]
 		[EndpointSummary("Send Audio and Return Sign")]
 		[EndpointDescription("Process The Audio Input Using AI Model And Convert Audio To Avatar")]
-		[EnableRateLimiting("stt-limit")]
+		[EnableRateLimiting(RateLimitPolicies.TranslationQuota)]
 		[RequestSizeLimit(MaxAudioSizeBytes)]
 		public async Task<ActionResult<ToSignResponseDTO>> AudioToSign([FromForm] AudioToSignRequest request, CancellationToken cancellationToken)
 		{
@@ -396,7 +432,7 @@ namespace S2S.Presentation.Controllers.V1
 		}
 
 		[HttpGet("/api/v{version:apiVersion}/media/{type}/{fileName}")]
-		[AllowAnonymous]
+		[Authorize]
 		[EnableRateLimiting(RateLimitPolicies.MediaLimit)]
 		public IActionResult GetMedia(string type, string fileName)
 		{
