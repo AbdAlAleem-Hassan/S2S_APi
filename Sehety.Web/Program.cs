@@ -207,7 +207,7 @@ builder.Services.AddRateLimiter(options =>
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst
             }));
 
-            // Rate limit for profile image uploads: 5 per minute per authenticated user
+    // Rate limit for profile image uploads: 5 per minute per authenticated user
     options.AddPolicy(RateLimitPolicies.ProfileImageUploadLimit, context =>
         RateLimitPartition.GetFixedWindowLimiter(
             partitionKey: context.User.Identity?.Name ?? context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
@@ -218,28 +218,6 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0,
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst
             }));
-
-    // Per-user translation quota: 10 requests per hour per user (sliding window)
-    // Unlimited users (identified by JWT claim "is_unlimited") bypass the limit.
-    options.AddPolicy(RateLimitPolicies.TranslationQuota, context =>
-    {
-        var isUnlimited = context.User.FindFirst("is_unlimited")?.Value;
-        if (string.Equals(isUnlimited, "true", StringComparison.OrdinalIgnoreCase))
-            return RateLimitPartition.GetNoLimiter("unlimited");
-
-        var userId = context.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value
-                  ?? context.Connection.RemoteIpAddress?.ToString()
-                  ?? "anonymous";
-
-        return RateLimitPartition.GetSlidingWindowLimiter(userId, _ => new SlidingWindowRateLimiterOptions
-        {
-            PermitLimit = 10,
-            Window = TimeSpan.FromHours(1),
-            SegmentsPerWindow = 6,
-            QueueLimit = 0,
-            QueueProcessingOrder = QueueProcessingOrder.OldestFirst
-        });
-    });
 });
 
 // Resolve Connection String dynamically for Cloud/Docker
@@ -256,6 +234,8 @@ builder.Services.AddScoped<IOtpService, OtpService>();
 builder.Services.AddScoped<IProfileService, ProfileService>();
 builder.Services.AddScoped<IAdminService, AdminService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
+builder.Services.AddScoped<UserUsageService>();
+builder.Services.AddScoped<S2S.Presentation.Filters.TranslationQuotaFilter>();
 builder.Services.AddScoped<ITranslationHistoryService, TranslationHistoryService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddSingleton<GroqApiKeyPool>();

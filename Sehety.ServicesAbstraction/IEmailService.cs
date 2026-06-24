@@ -10,5 +10,6 @@ namespace S2S.ServicesAbstraction
         Task SendPasswordChangedEmailAsync(string to, string displayName);
         Task SendEmailChangeOtpAsync(string to, string otp, string displayName);
         Task SendEmailChangedNotificationAsync(string oldEmail, string newEmail, string displayName);
+        Task SendTierChangedEmailAsync(string to, string displayName, string oldTier, string newTier, DateTime changedAt);
     }
 }

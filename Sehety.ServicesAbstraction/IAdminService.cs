@@ -7,6 +7,6 @@ namespace S2S.ServicesAbstraction
 	{
 		Task<Result<IEnumerable<DashUserDto>>> GetAllUsersAsync(string currentUserId);
 		Task<Result<string>> ToggleUserLockStatusAsync(string userId);
-		Task<Result<string>> ToggleUserUnlimitedStatusAsync(string userId);
+		Task<Result<string>> SetUserTierAsync(string userId, string tier, string changedByUserId, string? ipAddress);
 	}
 }

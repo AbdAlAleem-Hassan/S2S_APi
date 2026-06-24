@@ -8,7 +8,10 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using S2S.Domain.Entities.Enums;
+using S2S.Services;
 using S2S.ServicesAbstraction;
+using S2S.Presentation.Filters;
 using S2S.Shared.CommonResult;
 using S2S.Shared.Constants;
 using S2S.Shared.DataTransferObjects.V1.TranslationDTOs;
@@ -29,6 +32,7 @@ namespace S2S.Presentation.Controllers.V1
 		IWebHostEnvironment _env,
 		IConfiguration _configuration,
 		ITranslationHistoryService _historyService,
+		UserUsageService _userUsageService,
 	ILogger<TranslateController> _logger) : ApiBaseController
 	{
 		private const long MaxVideoSizeBytes = MediaDefaults.MaxVideoSizeBytes;
@@ -186,7 +190,7 @@ namespace S2S.Presentation.Controllers.V1
 
 		[HttpPost("sign-to-text")]
 		[Consumes("multipart/form-data")]
-		[EnableRateLimiting(RateLimitPolicies.TranslationQuota)]
+		[ServiceFilter(typeof(TranslationQuotaFilter))]
 		[RequestSizeLimit(MaxVideoSizeBytes)]
 		[ProducesResponseType<SignToTextResponseDTO>(StatusCodes.Status200OK)]
 		[ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
@@ -261,7 +265,7 @@ namespace S2S.Presentation.Controllers.V1
 
 		[HttpPost("audio-to-text")]
 		[Consumes("multipart/form-data")]
-		[EnableRateLimiting(RateLimitPolicies.TranslationQuota)]
+		[ServiceFilter(typeof(TranslationQuotaFilter))]
 		[RequestSizeLimit(MaxAudioSizeBytes)]
 		[ProducesResponseType<AudioToTextResponseDTO>(StatusCodes.Status200OK)]
 		[ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
@@ -283,7 +287,7 @@ namespace S2S.Presentation.Controllers.V1
 		}
 
 		[HttpPost("text-to-sign")]
-		[EnableRateLimiting(RateLimitPolicies.TranslationQuota)]
+		[ServiceFilter(typeof(TranslationQuotaFilter))]
 		[Consumes("multipart/form-data")]
 		[ProducesResponseType<ToSignResponseDTO>(StatusCodes.Status200OK)]
 		[ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
@@ -377,14 +381,14 @@ namespace S2S.Presentation.Controllers.V1
 
 		[HttpPost("audio-to-sign")]
 		[Consumes("multipart/form-data")]
+		[ServiceFilter(typeof(TranslationQuotaFilter))]
+		[RequestSizeLimit(MaxAudioSizeBytes)]
 		[ProducesResponseType<ToSignResponseDTO>(StatusCodes.Status200OK)]
 		[ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
 		[ProducesResponseType<ProblemDetails>(StatusCodes.Status500InternalServerError)]
 		//[EndpointName("Convert Audio To Sign")]
 		[EndpointSummary("Send Audio and Return Sign")]
 		[EndpointDescription("Process The Audio Input Using AI Model And Convert Audio To Avatar")]
-		[EnableRateLimiting(RateLimitPolicies.TranslationQuota)]
-		[RequestSizeLimit(MaxAudioSizeBytes)]
 		public async Task<ActionResult<ToSignResponseDTO>> AudioToSign([FromForm] AudioToSignRequest request, CancellationToken cancellationToken)
 		{
 			var sttResult = await _speechToTextService.TranscribeAsync(request.AudioFile, "ar", cancellationToken);
@@ -429,6 +433,26 @@ namespace S2S.Presentation.Controllers.V1
 				_logger.LogError(ex, "Failed to parse audio-to-sign response.");
 				return StatusCode(500, new { error = "Translation processing failed. Please try again." });
 			}
+		}
+
+		[HttpGet("quota")]
+		[EnableRateLimiting(RateLimitPolicies.AuthLimit)]
+		[ProducesResponseType<UserUsageInfo>(StatusCodes.Status200OK)]
+		[EndpointSummary("Get Current Translation Quota Usage")]
+		public async Task<ActionResult<UserUsageInfo>> GetQuota()
+		{
+			var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+					  ?? User.FindFirstValue(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub);
+
+			if (string.IsNullOrEmpty(userId))
+				return Unauthorized(new { message = "Invalid token claims. Could not extract User ID." });
+
+			var subscriptionTierClaim = User.FindFirst("subscription_tier")?.Value;
+			SubscriptionTier subscriptionTier = SubscriptionTier.Free;
+			SubscriptionTierExtensions.TryParseTier(subscriptionTierClaim, out subscriptionTier);
+
+			var usage = await _userUsageService.GetUsageAsync(userId, subscriptionTier);
+			return Ok(usage);
 		}
 
 		[HttpGet("/api/v{version:apiVersion}/media/{type}/{fileName}")]

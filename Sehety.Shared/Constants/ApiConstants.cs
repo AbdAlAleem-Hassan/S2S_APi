@@ -49,6 +49,16 @@ namespace S2S.Shared.Constants
         public const string AllowFrontendPolicy = "AllowFrontend";
     }
 
+    public static class QuotaTypes
+    {
+        public const string SignToText = "sign-to-text";
+        public const string AudioToText = "audio-to-text";
+        public const string TextToSign = "text-to-sign";
+        public const string AudioToSign = "audio-to-sign";
+
+        public static readonly string[] All = [SignToText, AudioToText, TextToSign, AudioToSign];
+    }
+
     public static class ValidationDefaults
     {
         // Email

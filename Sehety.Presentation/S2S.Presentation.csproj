@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Sehety.ServicesAbstraction\S2S.ServicesAbstraction.csproj" />
+    <ProjectReference Include="..\Sehety.Services\S2S.Services.csproj" />
   </ItemGroup>
 	<ItemGroup>
 		<FrameworkReference Include="Microsoft.AspNetCore.App" />

@@ -21,8 +21,7 @@ namespace S2S.Persistence.Configrations
             builder.Property(u => u.UserType).HasConversion<string>();
             builder.Property(u=> u.SignLanguage).HasConversion<string>();
 
-
-            builder.Property(u => u.IsUnlimited).HasDefaultValue(false);
+            builder.Property(u => u.SubscriptionTier).HasConversion<int>();
 
             builder.OwnsOne(u => u.Address, address =>
             {

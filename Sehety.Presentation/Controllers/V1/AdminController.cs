@@ -1,5 +1,3 @@
-
-
 using Asp.Versioning;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -53,12 +51,15 @@ namespace S2S.Presentation.Controllers.V1
 			return HandleRequest(result);
 		}
 
-		[HttpPut("users/{id}/toggle-unlimited")]
-		[EndpointSummary("Set/Unset User as Unlimited")]
-		[EndpointDescription("Toggles whether a user has unlimited translation quota. Change takes effect on next login or token refresh (up to 15 min).")]
-		public async Task<ActionResult<string>> ToggleUnlimited(string id)
+		[HttpPut("users/{id}/tier")]
+		[EndpointSummary("Set User Subscription Tier")]
+		[EndpointDescription("Set user tier. Valid values: Free (10 requests/hr), Premium (unlimited).")]
+		public async Task<ActionResult<string>> SetUserTier(string id, [FromBody] SetTierRequest request)
 		{
-			var result = await _adminService.ToggleUserUnlimitedStatusAsync(id);
+			var adminId = User.FindFirstValue(JwtRegisteredClaimNames.Sub);
+			var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
+
+			var result = await _adminService.SetUserTierAsync(id, request.Tier, adminId!, ipAddress);
 
 			if (result.IsSuccess)
 			{

@@ -12,8 +12,8 @@ using S2S.Persistence.IdentityData.DbContexts;
 namespace S2S.Persistence.IdentityData.Migrations
 {
     [DbContext(typeof(S2SIdentityDbContext))]
-    [Migration("20260623232937_AddIsUnlimitedField")]
-    partial class AddIsUnlimitedField
+    [Migration("20260624134609_AddUserTierHistory")]
+    partial class AddUserTierHistory
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -198,11 +198,6 @@ namespace S2S.Persistence.IdentityData.Migrations
                     b.Property<bool>("IsFirstLogin")
                         .HasColumnType("bit");
 
-                    b.Property<bool>("IsUnlimited")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bit")
-                        .HasDefaultValue(false);
-
                     b.Property<DateTime?>("LastLoginAt")
                         .HasColumnType("datetime2");
 
@@ -244,6 +239,9 @@ namespace S2S.Persistence.IdentityData.Migrations
                     b.Property<string>("SignLanguage")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("SubscriptionTier")
+                        .HasColumnType("int");
 
                     b.Property<bool>("TwoFactorEnabled")
                         .HasColumnType("bit");
@@ -377,6 +375,65 @@ namespace S2S.Persistence.IdentityData.Migrations
                     b.ToTable("TranslationHistories");
                 });
 
+            modelBuilder.Entity("S2S.Domain.Entities.Usage.UserTierHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValueSql("NEWSEQUENTIALID()");
+
+                    b.Property<DateTime>("ChangedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("GETUTCDATE()");
+
+                    b.Property<string>("ChangedByUserId")
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("IpAddress")
+                        .HasMaxLength(45)
+                        .HasColumnType("nvarchar(45)");
+
+                    b.Property<int>("NewTier")
+                        .HasColumnType("int");
+
+                    b.Property<int>("OldTier")
+                        .HasColumnType("int");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChangedByUserId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("UserTierHistories", (string)null);
+                });
+
+            modelBuilder.Entity("S2S.Domain.Entities.Usage.UserUsage", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTime>("WindowStart")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("Count")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0);
+
+                    b.Property<int>("QuotaType")
+                        .HasColumnType("int");
+
+                    b.HasKey("UserId", "WindowStart");
+
+                    b.ToTable("UserUsages", (string)null);
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
                 {
                     b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
@@ -492,6 +549,20 @@ namespace S2S.Persistence.IdentityData.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("S2S.Domain.Entities.Usage.UserTierHistory", b =>
+                {
+                    b.HasOne("S2S.Domain.Entities.IdentityModule.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("ChangedByUserId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("S2S.Domain.Entities.IdentityModule.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("S2S.Domain.Entities.IdentityModule.ApplicationUser", b =>

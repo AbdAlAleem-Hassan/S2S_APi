@@ -97,7 +97,7 @@ namespace S2S.Services
                 claims.Add(new Claim("role", role));
             }
 
-            claims.Add(new Claim("is_unlimited", user.IsUnlimited ? "true" : "false"));
+            claims.Add(new Claim("subscription_tier", user.SubscriptionTier.ToString().ToLowerInvariant()));
 
             var secretKey = _configuration["JWTOptions:SecretKey"]!;
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
