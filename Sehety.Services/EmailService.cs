@@ -290,5 +290,45 @@ namespace S2S.Services
                 SendEmailAsync(newEmail, newEmailSubject, newBody)
             );
         }
+        public async Task SendTierChangedEmailAsync(string to, string displayName, string oldTier, string newTier, DateTime changedAt)
+        {
+            string subject = "Your Subscription Tier Has Been Updated - S2S";
+            string formattedDate = changedAt.ToString("dd MMM yyyy HH:mm 'UTC'");
+
+            string content = $@"
+                <h2 style='margin: 0 0 20px 0; color: {SecondaryColor}; font-size: 24px; text-align: center;'>
+                    Subscription Update 🔄
+                </h2>
+                <p style='margin: 0 0 25px 0; color: {TextColor}; font-size: 16px; line-height: 1.6; text-align: center;'>
+                    Hi <strong>{displayName}</strong>, your S2S subscription tier has been updated.
+                </p>
+
+                <div style='background-color: {LightBg}; padding: 20px; border-radius: 12px; margin: 0 0 25px 0;'>
+                    <div style='margin-bottom: 16px;'>
+                        <p style='margin: 0 0 4px 0; color: {MutedText}; font-size: 13px;'>Previous Tier</p>
+                        <p style='margin: 0; color: {TextColor}; font-size: 16px; font-weight: bold;'>{oldTier}</p>
+                    </div>
+                    <div style='margin-bottom: 16px;'>
+                        <p style='margin: 0 0 4px 0; color: {MutedText}; font-size: 13px;'>New Tier</p>
+                        <div style='display: inline-block; background: linear-gradient(135deg, {PrimaryColor} 0%, #FF7B5C 100%); padding: 8px 20px; border-radius: 12px;'>
+                            <span style='color: #ffffff; font-size: 16px; font-weight: bold;'>{newTier}</span>
+                        </div>
+                    </div>
+                    <div style='border-top: 1px solid #eee; padding-top: 16px;'>
+                        <p style='margin: 0 0 4px 0; color: {MutedText}; font-size: 13px;'>Changed At</p>
+                        <p style='margin: 0; color: {TextColor}; font-size: 15px;'>⏱ {formattedDate}</p>
+                    </div>
+                </div>
+
+                <p style='margin: 0 0 10px 0; color: {TextColor}; font-size: 14px; line-height: 1.6; text-align: center;'>
+                    If you have any questions about this change, please contact our support team.
+                </p>
+                <p style='margin: 0; color: {PrimaryColor}; font-size: 14px; text-align: center; font-weight: bold;'>
+                    support@s2sai.online
+                </p>";
+
+            string body = GetEmailTemplate(content);
+            await SendEmailAsync(to, subject, body);
+        }
     }
 }

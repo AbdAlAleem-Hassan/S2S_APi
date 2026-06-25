@@ -1,5 +1,3 @@
-
-
 using Asp.Versioning;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -45,6 +43,23 @@ namespace S2S.Presentation.Controllers.V1
 			}
 
 			var result = await _adminService.ToggleUserLockStatusAsync(id);
+
+			if (result.IsSuccess)
+			{
+				return Ok(result);
+			}
+			return HandleRequest(result);
+		}
+
+		[HttpPut("users/{id}/tier")]
+		[EndpointSummary("Set User Subscription Tier")]
+		[EndpointDescription("Set user tier. Valid values: Free (10 requests/hr), Premium (unlimited).")]
+		public async Task<ActionResult<string>> SetUserTier(string id, [FromBody] SetTierRequest request)
+		{
+			var adminId = User.FindFirstValue(JwtRegisteredClaimNames.Sub);
+			var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
+
+			var result = await _adminService.SetUserTierAsync(id, request.Tier, adminId!, ipAddress);
 
 			if (result.IsSuccess)
 			{

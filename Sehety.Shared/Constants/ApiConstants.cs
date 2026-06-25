@@ -9,6 +9,8 @@ namespace S2S.Shared.Constants
         public const string SttLimit = "stt-limit";
         public const string MediaLimit = "media-limit";
         public const string ProfileImageUploadLimit = "profile-image-upload-limit";
+        public const string ResendOtpLimit = "resend-otp-limit";
+        public const string TranslationQuota = "translation-quota";
     }
 
     public static class CookieNames
@@ -45,6 +47,16 @@ namespace S2S.Shared.Constants
     public static class CorsDefaults
     {
         public const string AllowFrontendPolicy = "AllowFrontend";
+    }
+
+    public static class QuotaTypes
+    {
+        public const string SignToText = "sign-to-text";
+        public const string AudioToText = "audio-to-text";
+        public const string TextToSign = "text-to-sign";
+        public const string AudioToSign = "audio-to-sign";
+
+        public static readonly string[] All = [SignToText, AudioToText, TextToSign, AudioToSign];
     }
 
     public static class ValidationDefaults

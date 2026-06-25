@@ -73,6 +73,7 @@ builder.Services.AddControllers(options =>
 					.Build();
 
 	options.Filters.Add(new AuthorizeFilter(policy));
+	options.Filters.Add<S2S.Presentation.Filters.SanitizeInputFilter>();
 }).AddJsonOptions(options =>
 {
 	options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
@@ -110,8 +111,9 @@ builder.Services.AddCors(options =>
                     "https://www.s2sai.online",
                     "http://localhost:3000",
                     "http://localhost:5173")
-                  .AllowAnyHeader()
-                  .AllowAnyMethod()
+                  .WithHeaders("Content-Type", "Authorization", "X-XSRF-TOKEN", "Accept")
+                  .WithMethods("GET", "POST", "PUT", "DELETE", "PATCH")
+                  .SetPreflightMaxAge(TimeSpan.FromMinutes(10))
                   .AllowCredentials();
         });
 });
@@ -154,6 +156,18 @@ builder.Services.AddRateLimiter(options =>
             {
                 PermitLimit = 5,
                 Window = TimeSpan.FromMinutes(10),
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst
+            }));
+
+    // Resend OTP: IP-only rate limit to prevent email enumeration
+    options.AddPolicy(RateLimitPolicies.ResendOtpLimit, context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(15),
                 QueueLimit = 0,
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst
             }));
@@ -220,6 +234,8 @@ builder.Services.AddScoped<IOtpService, OtpService>();
 builder.Services.AddScoped<IProfileService, ProfileService>();
 builder.Services.AddScoped<IAdminService, AdminService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
+builder.Services.AddScoped<UserUsageService>();
+builder.Services.AddScoped<S2S.Presentation.Filters.TranslationQuotaFilter>();
 builder.Services.AddScoped<ITranslationHistoryService, TranslationHistoryService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddSingleton<GroqApiKeyPool>();
@@ -313,68 +329,36 @@ builder.Services.AddAuthentication(configureOptions =>
         RoleClaimType = "role"
     };
 
-    // Return structured JSON for 401/403 instead of empty responses.
-    // Includes loginUrl + validated returnUrl for safe client-side redirect.
     options.Events = new JwtBearerEvents
     {
-        OnChallenge = async context =>
+        OnChallenge = context =>
         {
-            // Suppress default redirect behavior
             context.HandleResponse();
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             context.Response.ContentType = "application/json";
 
-            var clientUrl = context.HttpContext.RequestServices
-                .GetRequiredService<IConfiguration>()["AppUrls:ClientUrl"] ?? "https://s2sai.online";
-
-            // Build safe returnUrl from the original request path
-            var requestPath = context.Request.Path + context.Request.QueryString;
-            var safeReturnUrl = S2S.Shared.Security.RedirectUrlValidator.Validate(requestPath);
-
-            var response = new
+            var result = System.Text.Json.JsonSerializer.Serialize(new
             {
-                status = 401,
-                title = "Authentication required",
-                detail = "You must be logged in to access this resource.",
-                loginUrl = $"{clientUrl}/login",
-                returnUrl = safeReturnUrl
-            };
+                error = "Unauthorized",
+                message = "Please login to access this resource."
+            });
 
-            await context.Response.WriteAsJsonAsync(response);
+            return context.Response.WriteAsync(result);
         },
-        OnForbidden = async context =>
+        OnForbidden = context =>
         {
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
             context.Response.ContentType = "application/json";
 
-            var response = new
+            var result = System.Text.Json.JsonSerializer.Serialize(new
             {
-                status = 403,
-                title = "Access denied",
-                detail = "You do not have permission to access this resource."
-            };
+                error = "Forbidden",
+                message = "You do not have permission to access this resource."
+            });
 
-            await context.Response.WriteAsJsonAsync(response);
+            return context.Response.WriteAsync(result);
         }
     };
-	options.Events = new JwtBearerEvents
-	{
-		OnChallenge = context =>
-		{
-			context.HandleResponse();
-
-			context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-			context.Response.ContentType = "application/json";
-
-			var result = System.Text.Json.JsonSerializer.Serialize(new
-			{
-				error = "Unauthorized",
-				message = "Please login to access this resource. Navigate to /api/v1/Auth/Login"
-			});
-
-			return context.Response.WriteAsync(result);
-		}
-	};
 });
 
 builder.Services.AddApiVersioning(options =>
@@ -476,6 +460,9 @@ app.Use(async (context, next) =>
     headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
     headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()";
     headers["X-Permitted-Cross-Domain-Policies"] = "none";
+    headers["Cross-Origin-Resource-Policy"] = "same-origin";
+    headers["Cross-Origin-Opener-Policy"] = "same-origin";
+    headers["Content-Security-Policy"] = "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; media-src 'self'; img-src 'self'";
     if (context.Request.IsHttps || string.Equals(context.Request.Headers["X-Forwarded-Proto"], "https", StringComparison.OrdinalIgnoreCase))
     {
         headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains";

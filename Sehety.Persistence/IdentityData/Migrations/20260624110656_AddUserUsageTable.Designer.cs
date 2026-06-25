@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using S2S.Persistence.IdentityData.DbContexts;
 
@@ -11,9 +12,11 @@ using S2S.Persistence.IdentityData.DbContexts;
 namespace S2S.Persistence.IdentityData.Migrations
 {
     [DbContext(typeof(S2SIdentityDbContext))]
-    partial class S2SIdentityDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260624110656_AddUserUsageTable")]
+    partial class AddUserUsageTable
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -238,7 +241,9 @@ namespace S2S.Persistence.IdentityData.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("SubscriptionTier")
-                        .HasColumnType("int");
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0);
 
                     b.Property<bool>("TwoFactorEnabled")
                         .HasColumnType("bit");
@@ -370,44 +375,6 @@ namespace S2S.Persistence.IdentityData.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("TranslationHistories");
-                });
-
-            modelBuilder.Entity("S2S.Domain.Entities.Usage.UserTierHistory", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier")
-                        .HasDefaultValueSql("NEWSEQUENTIALID()");
-
-                    b.Property<DateTime>("ChangedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime2")
-                        .HasDefaultValueSql("GETUTCDATE()");
-
-                    b.Property<string>("ChangedByUserId")
-                        .HasColumnType("nvarchar(450)");
-
-                    b.Property<string>("IpAddress")
-                        .HasMaxLength(45)
-                        .HasColumnType("nvarchar(45)");
-
-                    b.Property<int>("NewTier")
-                        .HasColumnType("int");
-
-                    b.Property<int>("OldTier")
-                        .HasColumnType("int");
-
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(450)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ChangedByUserId");
-
-                    b.HasIndex("UserId");
-
-                    b.ToTable("UserTierHistories", (string)null);
                 });
 
             modelBuilder.Entity("S2S.Domain.Entities.Usage.UserUsage", b =>
@@ -546,20 +513,6 @@ namespace S2S.Persistence.IdentityData.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
-                });
-
-            modelBuilder.Entity("S2S.Domain.Entities.Usage.UserTierHistory", b =>
-                {
-                    b.HasOne("S2S.Domain.Entities.IdentityModule.ApplicationUser", null)
-                        .WithMany()
-                        .HasForeignKey("ChangedByUserId")
-                        .OnDelete(DeleteBehavior.NoAction);
-
-                    b.HasOne("S2S.Domain.Entities.IdentityModule.ApplicationUser", null)
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
                 });
 
             modelBuilder.Entity("S2S.Domain.Entities.IdentityModule.ApplicationUser", b =>

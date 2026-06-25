@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using S2S.Domain.Entities.IdentityModule;
 using S2S.Domain.Entities.Translation;
+using S2S.Domain.Entities.Usage;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
@@ -20,6 +21,8 @@ namespace S2S.Persistence.IdentityData.DbContexts
 		public DbSet<UserOtp> UserOtps { get; set; }
 		public DbSet<UserPasswordHistory> UserPasswordHistories { get; set; }
 		public DbSet<TranslationHistory> TranslationHistories { get; set; }
+		public DbSet<UserUsage> UserUsages { get; set; }
+		public DbSet<UserTierHistory> UserTierHistories { get; set; }
 
 		protected override void OnModelCreating(ModelBuilder builder)
 		{
