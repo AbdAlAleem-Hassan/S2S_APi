@@ -101,16 +101,22 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
     options.KnownProxies.Clear();
 });
 
+var allowedOrigins = builder.Configuration
+    .GetSection("CorsSettings:AllowedOrigins")
+    .Get<string[]>() ??
+    [
+        "https://s2sai.online",
+        "https://www.s2sai.online",
+        "http://localhost:3000",
+        "http://localhost:5173"
+    ];
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy(CorsDefaults.AllowFrontendPolicy,
         policy =>
         {
-            policy.WithOrigins(
-                    "https://s2sai.online",
-                    "https://www.s2sai.online",
-                    "http://localhost:3000",
-                    "http://localhost:5173")
+            policy.WithOrigins(allowedOrigins)
                   .WithHeaders("Content-Type", "Authorization", "X-XSRF-TOKEN", "Accept")
                   .WithMethods("GET", "POST", "PUT", "DELETE", "PATCH")
                   .SetPreflightMaxAge(TimeSpan.FromMinutes(10))
