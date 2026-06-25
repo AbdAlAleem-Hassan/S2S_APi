@@ -48,8 +48,7 @@ namespace S2S.Services
                     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
                     var token = cts.Token;
 
-                    await client.ConnectAsync(host, 465, SecureSocketOptions.SslOnConnect, token);
-                    await client.AuthenticateAsync(email, password, token);
+                    await client.ConnectAsync("smtp-relay", 25, SecureSocketOptions.None, token);
 
                     var message = new MimeMessage();
                     message.MessageId = MimeUtils.GenerateMessageId();
