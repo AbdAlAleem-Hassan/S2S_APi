@@ -279,11 +279,9 @@ namespace S2S.Services
                 return Result.Ok();
             }
 
-            var oldOtps = await _context.UserOtps
-                .Where(o => o.UserId == user.Id && !o.IsUsed)
-                .ToListAsync();
-
-            foreach (var old in oldOtps) old.IsUsed = true;
+			await _context.UserOtps
+				.Where(o => o.UserId == user.Id && !o.IsUsed)
+				.ExecuteUpdateAsync(setters => setters.SetProperty(o => o.IsUsed, true));
 
             var rawToken = AuthHelpers.GenerateSecureToken();
             var hashedToken = AuthHelpers.HashSecureToken(rawToken);

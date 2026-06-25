@@ -30,22 +30,34 @@ namespace S2S.Services
             var email = smtpSettings["Email"];
             var password = smtpSettings["Password"];
 
-            using var client = new SmtpClient(host, port)
+            int maxRetries = 3;
+            for (int attempt = 1; attempt <= maxRetries; attempt++)
             {
-                Credentials = new NetworkCredential(email, password),
-                EnableSsl = true
-            };
+                try
+                {
+                    using var client = new SmtpClient(host, port)
+                    {
+                        Credentials = new NetworkCredential(email, password),
+                        EnableSsl = true
+                    };
 
-            var mailMessage = new MailMessage
-            {
-                From = new MailAddress(email!, "S2S App"),
-                Subject = subject,
-                Body = body,
-                IsBodyHtml = true
-            };
-            mailMessage.To.Add(to);
+                    using var mailMessage = new MailMessage
+                    {
+                        From = new MailAddress(email!, "S2S App"),
+                        Subject = subject,
+                        Body = body,
+                        IsBodyHtml = true
+                    };
+                    mailMessage.To.Add(to);
 
-            await client.SendMailAsync(mailMessage);
+                    await client.SendMailAsync(mailMessage);
+                    return;
+                }
+                catch when (attempt < maxRetries)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(2));
+                }
+            }
         }
 
         private string GetEmailTemplate(string content)
