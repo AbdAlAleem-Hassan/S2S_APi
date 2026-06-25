@@ -42,10 +42,10 @@ namespace S2S.Services
                 {
                     using var client = new SmtpClient
                     {
-                        Timeout = 30_000
+                        Timeout = 60_000
                     };
 
-                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
                     var token = cts.Token;
 
                     await client.ConnectAsync(host, port, SecureSocketOptions.Auto, token);
