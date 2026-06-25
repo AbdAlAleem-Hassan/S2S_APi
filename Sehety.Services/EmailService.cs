@@ -1,16 +1,12 @@
-using MailKit.Net.Smtp;
-using MailKit.Security;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using MimeKit;
-using MimeKit.Utils;
+using Resend;
 using S2S.ServicesAbstraction;
 
 namespace S2S.Services
 {
     public class EmailService : IEmailService
     {
-        private readonly IConfiguration _configuration;
+        private readonly IResend _resend;
         private readonly ILogger<EmailService> _logger;
 
         private const string PrimaryColor = "#E85D3F";
@@ -18,77 +14,30 @@ namespace S2S.Services
         private const string LightBg = "#F8F9FA";
         private const string TextColor = "#333333";
         private const string MutedText = "#6C757D";
+        private const string FromAddress = "S2S App <no-reply@s2sai.online>";
 
-        public EmailService(IConfiguration configuration, ILogger<EmailService> logger)
+        public EmailService(IResend resend, ILogger<EmailService> logger)
         {
-            _configuration = configuration;
+            _resend = resend;
             _logger = logger;
         }
 
         public async Task SendEmailAsync(string to, string subject, string body)
         {
-            var smtpSettings = _configuration.GetSection("SmtpSettings");
-            var host = smtpSettings["Host"]!;
-            var port = int.Parse(smtpSettings["Port"]!);
-            var email = smtpSettings["Email"]!;
-            var password = smtpSettings["Password"]!;
-
             _logger.LogInformation("Sending email to {Recipient}, subject: {Subject}", to, subject);
 
-            int maxRetries = 3;
-            for (int attempt = 1; attempt <= maxRetries; attempt++)
+            var message = new EmailMessage
             {
-                try
-                {
-                    using var client = new SmtpClient
-                    {
-                        Timeout = 60_000
-                    };
+                From = FromAddress,
+                Subject = subject,
+                HtmlBody = body,
+                TextBody = $"S2S App - {subject}\n\nPlease open this email in an HTML-compatible viewer.\n\nOr visit https://s2sai.online"
+            };
+            message.To.Add(to);
 
-                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-                    var token = cts.Token;
+            await _resend.EmailSendAsync(message);
 
-                    await client.ConnectAsync("smtp-relay", 25, SecureSocketOptions.None, token);
-
-                    var message = new MimeMessage();
-                    message.MessageId = MimeUtils.GenerateMessageId();
-                    message.From.Add(new MailboxAddress("S2S App", email));
-                    message.To.Add(MailboxAddress.Parse(to));
-                    message.Subject = subject;
-
-                    var builder = new BodyBuilder
-                    {
-                        HtmlBody = body,
-                        TextBody = $"S2S App - {subject}\n\nPlease open this email in an HTML-compatible viewer.\n\nOr visit https://s2sai.online"
-                    };
-                    message.Body = builder.ToMessageBody();
-
-                    await client.SendAsync(message, token);
-                    await client.DisconnectAsync(true, token);
-
-                    _logger.LogInformation("Email sent successfully to {Recipient}", to);
-                    return;
-                }
-                catch (AuthenticationException ex)
-                {
-                    _logger.LogError(ex, "SMTP authentication failed for {Recipient}", to);
-                    throw;
-                }
-                catch (Exception ex) when (attempt < maxRetries)
-                {
-                    _logger.LogWarning(ex,
-                        "Attempt {Attempt}/{MaxRetries} failed for {Recipient}",
-                        attempt, maxRetries, to);
-                    await Task.Delay(TimeSpan.FromSeconds(2));
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex,
-                        "All {MaxRetries} attempts failed for {Recipient}",
-                        maxRetries, to);
-                    throw;
-                }
-            }
+            _logger.LogInformation("Email sent successfully via Resend to {Recipient}", to);
         }
 
         private string GetEmailTemplate(string content)

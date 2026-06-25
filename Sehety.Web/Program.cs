@@ -1,6 +1,7 @@
 using FirebaseAdmin;
 using FluentValidation;
 using FluentValidation.AspNetCore;
+using Resend;
 using Google.Apis.Auth.OAuth2;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -239,6 +240,7 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IOtpService, OtpService>();
 builder.Services.AddScoped<IProfileService, ProfileService>();
 builder.Services.AddScoped<IAdminService, AdminService>();
+builder.Services.AddResend(o => o.ApiToken = builder.Configuration["ResendSettings:ApiKey"]!);
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<UserUsageService>();
 builder.Services.AddScoped<S2S.Presentation.Filters.TranslationQuotaFilter>();
