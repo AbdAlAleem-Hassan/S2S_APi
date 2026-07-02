@@ -1,6 +1,7 @@
 using FirebaseAdmin;
 using FluentValidation;
 using FluentValidation.AspNetCore;
+using Resend;
 using Google.Apis.Auth.OAuth2;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -101,16 +102,22 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
     options.KnownProxies.Clear();
 });
 
+var allowedOrigins = builder.Configuration
+    .GetSection("CorsSettings:AllowedOrigins")
+    .Get<string[]>() ??
+    [
+        "https://s2sai.online",
+        "https://www.s2sai.online",
+        "http://localhost:3000",
+        "http://localhost:5173"
+    ];
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy(CorsDefaults.AllowFrontendPolicy,
         policy =>
         {
-            policy.WithOrigins(
-                    "https://s2sai.online",
-                    "https://www.s2sai.online",
-                    "http://localhost:3000",
-                    "http://localhost:5173")
+            policy.WithOrigins(allowedOrigins)
                   .WithHeaders("Content-Type", "Authorization", "X-XSRF-TOKEN", "Accept")
                   .WithMethods("GET", "POST", "PUT", "DELETE", "PATCH")
                   .SetPreflightMaxAge(TimeSpan.FromMinutes(10))
@@ -233,6 +240,7 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IOtpService, OtpService>();
 builder.Services.AddScoped<IProfileService, ProfileService>();
 builder.Services.AddScoped<IAdminService, AdminService>();
+builder.Services.AddResend(o => o.ApiToken = builder.Configuration["ResendSettings:ApiKey"]!);
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<UserUsageService>();
 builder.Services.AddScoped<S2S.Presentation.Filters.TranslationQuotaFilter>();

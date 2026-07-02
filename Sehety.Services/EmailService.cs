@@ -1,51 +1,43 @@
-using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
+using Resend;
 using S2S.ServicesAbstraction;
-using System.Net;
-using System.Net.Mail;
-using System.Threading.Tasks;
 
 namespace S2S.Services
 {
     public class EmailService : IEmailService
     {
-        private readonly IConfiguration _configuration;
-        
-        // S2S Brand Colors
-        private const string PrimaryColor = "#E85D3F";    // Orange/Coral
-        private const string SecondaryColor = "#1E3A5F";  // Dark Blue
+        private readonly IResend _resend;
+        private readonly ILogger<EmailService> _logger;
+
+        private const string PrimaryColor = "#E85D3F";
+        private const string SecondaryColor = "#1E3A5F";
         private const string LightBg = "#F8F9FA";
         private const string TextColor = "#333333";
         private const string MutedText = "#6C757D";
+        private const string FromAddress = "S2S App <no-reply@s2sai.online>";
 
-        public EmailService(IConfiguration configuration)
+        public EmailService(IResend resend, ILogger<EmailService> logger)
         {
-            _configuration = configuration;
+            _resend = resend;
+            _logger = logger;
         }
 
         public async Task SendEmailAsync(string to, string subject, string body)
         {
-            var smtpSettings = _configuration.GetSection("SmtpSettings");
-            var host = smtpSettings["Host"];
-            var port = int.Parse(smtpSettings["Port"]!);
-            var email = smtpSettings["Email"];
-            var password = smtpSettings["Password"];
+            _logger.LogInformation("Sending email to {Recipient}, subject: {Subject}", to, subject);
 
-            using var client = new SmtpClient(host, port)
+            var message = new EmailMessage
             {
-                Credentials = new NetworkCredential(email, password),
-                EnableSsl = true
-            };
-
-            var mailMessage = new MailMessage
-            {
-                From = new MailAddress(email!, "S2S App"),
+                From = FromAddress,
                 Subject = subject,
-                Body = body,
-                IsBodyHtml = true
+                HtmlBody = body,
+                TextBody = $"S2S App - {subject}\n\nPlease open this email in an HTML-compatible viewer.\n\nOr visit https://s2sai.online"
             };
-            mailMessage.To.Add(to);
+            message.To.Add(to);
 
-            await client.SendMailAsync(mailMessage);
+            await _resend.EmailSendAsync(message);
+
+            _logger.LogInformation("Email sent successfully via Resend to {Recipient}", to);
         }
 
         private string GetEmailTemplate(string content)
@@ -159,6 +151,7 @@ namespace S2S.Services
             string body = GetEmailTemplate(content);
             await SendEmailAsync(to, subject, body);
         }
+
         public async Task SendPasswordChangedEmailAsync(string to, string displayName)
         {
             string subject = "Your Password Has Been Changed - S2S";
@@ -225,7 +218,6 @@ namespace S2S.Services
         {
             var changedAt = DateTime.UtcNow.ToString("MMMM dd, yyyy 'at' HH:mm 'UTC'");
 
-            // --- Email to OLD address (security alert) ---
             string oldEmailSubject = "Your Email Address Has Been Changed - S2S";
             string oldEmailContent = $@"
                 <h2 style='margin: 0 0 20px 0; color: {SecondaryColor}; font-size: 24px; text-align: center;'>
@@ -259,7 +251,6 @@ namespace S2S.Services
                     All active sessions have been signed out for your security.
                 </p>";
 
-            // --- Email to NEW address (welcome/confirmation) ---
             string newEmailSubject = "Email Address Confirmed - S2S";
             string newEmailContent = $@"
                 <h2 style='margin: 0 0 20px 0; color: {SecondaryColor}; font-size: 24px; text-align: center;'>
@@ -290,6 +281,7 @@ namespace S2S.Services
                 SendEmailAsync(newEmail, newEmailSubject, newBody)
             );
         }
+
         public async Task SendTierChangedEmailAsync(string to, string displayName, string oldTier, string newTier, DateTime changedAt)
         {
             string subject = "Your Subscription Tier Has Been Updated - S2S";

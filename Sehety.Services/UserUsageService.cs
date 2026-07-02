@@ -33,11 +33,17 @@ namespace S2S.Services
 
             if (limit < 0) return true;
 
-            var total = await _db.UserUsages
-                .Where(u => u.UserId == userId && u.WindowStart == windowStart)
-                .SumAsync(u => (int?)u.Count) ?? 0;
+            var existing = await _db.UserUsages
+                .FirstOrDefaultAsync(u => u.UserId == userId && u.WindowStart == windowStart);
 
-            if (total >= limit) return false;
+            if (existing != null)
+            {
+                if (existing.Count >= limit) return false;
+                existing.Count++;
+                existing.QuotaType = quotaType;
+                await _db.SaveChangesAsync();
+                return true;
+            }
 
             try
             {
